@@ -347,26 +347,54 @@ async function mountPanel({
     return panel;
   }
 
-  try {
-    const expansion = await requestExpansion(target, sentence, {
-      verbosity,
-      path,
-      onProgress: (message) => {
-        const progress = panel.querySelector('[data-role="progress"]');
-        if (progress) progress.textContent = message;
-      },
-      onPartial: (partial) => renderPartial(panel, partial),
-      onThinking: (message) => renderThinking(panel, message),
-    });
-    if (state.openPanels.get(key) === panel) {
-      renderExpansion(panel, expansion.data, expansion.cached, verbosity);
-      syncActiveMarks();
+  // The server already retries a provider having a bad moment; reaching here
+  // means it gave up, and only the reader can decide whether to spend another
+  // round of tokens on it.
+  const run = async () => {
+    try {
+      const expansion = await requestExpansion(target, sentence, {
+        verbosity,
+        path,
+        onProgress: (message) => {
+          const progress = panel.querySelector('[data-role="progress"]');
+          if (progress) progress.textContent = message;
+        },
+        onPartial: (partial) => renderPartial(panel, partial),
+        onThinking: (message) => renderThinking(panel, message),
+      });
+      if (state.openPanels.get(key) === panel) {
+        renderExpansion(panel, expansion.data, expansion.cached, verbosity);
+        syncActiveMarks();
+      }
+    } catch (error) {
+      renderPanelError(panel, error.message, run);
     }
-  } catch (error) {
-    panel.querySelector('[data-role="body"]').innerHTML =
-      `<p class="warn">Could not expand: ${error.message}</p>`;
-  }
+  };
+
+  await run();
   return panel;
+}
+
+/** Show why a panel failed, and offer to try again.
+ *
+ * `textContent` for the message, never `innerHTML`: it carries provider text
+ * this app did not write.
+ */
+function renderPanelError(panel, message, retry) {
+  const body = panel.querySelector('[data-role="body"]');
+  body.innerHTML = "";
+  const warn = document.createElement("p");
+  warn.className = "warn";
+  warn.textContent = `Could not expand: ${message}`;
+  const again = document.createElement("button");
+  again.className = "ghost retry";
+  again.textContent = "Try again";
+  again.addEventListener("click", (event) => {
+    event.stopPropagation();
+    body.innerHTML = '<p class="hint" data-role="progress">retrying…</p>';
+    retry();
+  });
+  body.append(warn, again);
 }
 
 /** Regenerate an open panel one verbosity level up, in place. */
@@ -670,10 +698,19 @@ async function analyze(document_, { refresh = false, onChunk } = {}) {
 // UI wiring
 // --------------------------------------------------------------------------- //
 
-function setStatus(message, busy = false) {
+function setStatus(message, busy = false, retry = null) {
   const status = el("status");
   status.textContent = message;
   status.classList.toggle("busy", busy);
+
+  el("status-retry")?.remove();
+  if (!retry) return;
+  const again = document.createElement("button");
+  again.id = "status-retry";
+  again.className = "ghost retry";
+  again.textContent = "Try again";
+  again.addEventListener("click", retry);
+  status.after(again);
 }
 
 function renderSidebar() {
@@ -809,7 +846,9 @@ async function loadDocument(text, { refresh = false, source = null } = {}) {
       },
     });
   } catch (error) {
-    setStatus(`error: ${error.message}`);
+    // Whatever the chunks already delivered stays marked and usable; the retry
+    // re-reads the document rather than resuming, which is the honest offer.
+    setStatus(`error: ${error.message}`, false, () => loadDocument(text, { refresh, source }));
     return;
   }
 

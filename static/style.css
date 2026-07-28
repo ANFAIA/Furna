@@ -630,6 +630,14 @@ mark.ent.ent-flash { animation: flash 1.1s ease; }
 
 .warn { color: var(--warm); font-size: 0.82rem; margin: 0.7rem 0 0; }
 
+/* Offered only where the server already gave up, so it should read as an
+   action the reader takes, not as a warning repeated. */
+.retry {
+  margin-top: 0.6rem;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.76rem;
+}
+
 /* --------------------------------------------------------------- loader -- */
 
 .loader { display: flex; align-items: center; gap: 0.4rem; color: var(--ink-faint); font-size: 0.84rem; }
