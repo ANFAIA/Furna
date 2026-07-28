@@ -164,10 +164,14 @@ button {
 
 /* ---------------------------------------------------------------- layout -- */
 
+/* The reader comes first in the source because it is the document; on a wide
+   screen the sidebar sits to its right, out of the way of the text's left edge
+   where the eye returns on every line. Below 880px it stacks above instead —
+   an index the reader scrolls past once beats one pushed off the bottom. */
 .layout {
   flex: 1;
   display: grid;
-  grid-template-columns: 268px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 268px;
   align-items: start;
 }
 
@@ -176,8 +180,10 @@ button {
   top: 53px;
   max-height: calc(100vh - 53px);
   overflow-y: auto;
+  grid-column: 2;
+  grid-row: 1;
   padding: 1rem 0.8rem 2rem;
-  border-right: 1px solid var(--rule);
+  border-left: 1px solid var(--rule);
 }
 
 .sidebar input[type="search"] {
@@ -232,6 +238,8 @@ button {
 /* ---------------------------------------------------------------- reader -- */
 
 .reader {
+  grid-column: 1;
+  grid-row: 1;
   max-width: 46rem;
   margin: 0 auto;
   padding: 2.2rem 2rem 6rem;
@@ -696,6 +704,14 @@ mark.ent.ent-flash { animation: flash 1.1s ease; }
 
 @media (max-width: 880px) {
   .layout { grid-template-columns: 1fr; }
-  .sidebar { position: static; max-height: 240px; border-right: none; border-bottom: 1px solid var(--rule); }
+  .sidebar {
+    position: static;
+    grid-column: 1;
+    grid-row: 1; /* above the reader once stacked, as an index should be */
+    max-height: 240px;
+    border-left: none;
+    border-bottom: 1px solid var(--rule);
+  }
+  .reader { grid-row: 2; }
   .reader { padding: 1.4rem 1.1rem 4rem; }
 }
