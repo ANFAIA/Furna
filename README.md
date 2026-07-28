@@ -236,3 +236,7 @@ the quality of what the model writes.
 - A nested panel reuses the cached entry written for the top level, so it does not
   re-explain the term in light of where the reader came from. That is the explicit
   trade for not multiplying the cache by every path.
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE).

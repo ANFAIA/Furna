@@ -1,7 +1,9 @@
 [project]
 name = "learning-tool"
 version = "0.1.0"
-description = "Add your description here"
+description = "Explore a document by opening holes in it: an agent expands the entities you click."
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
