@@ -67,11 +67,17 @@ body {
   white-space: nowrap;
 }
 
+/* The mark is painted, not embedded: an <img> cannot inherit `currentColor`, so
+   the file's own black stayed black and the logo vanished on a dark background.
+   As a mask, the shape comes from the file and the colour from the theme. */
 .brand-mark {
   width: 18px;
   height: 18px;
-  color: var(--accent);
   flex: none;
+  display: inline-block;
+  background: var(--accent);
+  -webkit-mask: url("/static/furna.svg") center / contain no-repeat;
+  mask: url("/static/furna.svg") center / contain no-repeat;
 }
 
 .topic {
@@ -123,7 +129,24 @@ button {
   border-bottom: 1px solid var(--rule);
   background: var(--bg-sunk);
 }
-.composer.open { display: flex; }
+.composer.open { display: flex; flex-wrap: wrap; }
+
+/* The URL takes its own row: it is an alternative to pasting, not a field of it. */
+.composer-url {
+  flex: 1 1 100%;
+  display: flex;
+  gap: 0.5rem;
+}
+.composer-url input {
+  flex: 1;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--rule);
+  border-radius: 9px;
+  background: var(--panel);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
 
 .composer textarea {
   flex: 1;

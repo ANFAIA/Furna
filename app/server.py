@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from pathlib import Path
@@ -22,6 +23,7 @@ from app.agents import (
 )
 from app import config
 from app.cache import ENTITIES_KEY, cache, doc_hash
+from app.fetcher import FetchError, fetch_document
 from app.schemas import EntityExtraction, Expansion, Verbosity
 
 load_dotenv()
@@ -120,6 +122,22 @@ async def sample() -> dict[str, str]:
     if not path.exists():
         raise HTTPException(status_code=404, detail="No sample document available.")
     return {"document": path.read_text("utf-8")}
+
+
+@app.get("/api/fetch")
+async def fetch(url: str) -> dict[str, str]:
+    """Read a document off the web so `?document=<url>` can open it.
+
+    No model is needed to fetch, so this does not check the configuration: a
+    misconfigured instance should still be able to show you the text it failed
+    to analyze.
+    """
+    try:
+        # Blocking sockets: off the event loop, or one slow host stalls every
+        # in-flight expansion stream.
+        return await asyncio.to_thread(fetch_document, url)
+    except FetchError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/analyze")

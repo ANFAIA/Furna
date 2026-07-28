@@ -4,6 +4,7 @@ const el = (id) => document.getElementById(id);
 
 const state = {
   document: "",
+  source: null, // the URL it came from, when it came from one
   docHash: null,
   entities: new Map(), // entity_id -> entity
   expansions: new Map(), // entity_id -> expansion (session-level memory cache)
@@ -706,8 +707,52 @@ function jumpToEntity(id) {
   if (!state.openPanels.has(instanceKey(mark))) toggleInstance(mark);
 }
 
-async function loadDocument(text, { refresh = false } = {}) {
+/** Put the document's own URL in the address bar, or take it out.
+ *
+ * `replaceState`, not `pushState`: loading a document is not a navigation the
+ * reader should have to press Back through, and every panel they open would
+ * otherwise be stranded behind it.
+ */
+function reflectSource(url) {
+  const here = new URL(window.location.href);
+  if (url) here.searchParams.set("document", url);
+  else here.searchParams.delete("document");
+  history.replaceState(null, "", here.toString().replace(/\?$/, ""));
+}
+
+/** Fetch a document by URL and read it.
+ *
+ * The fetch goes through the server: a page on another origin will not hand
+ * its text to a script here, and the server is also where the address checks
+ * live.
+ */
+async function loadFromUrl(url, { refresh = false } = {}) {
+  setStatus(`fetching ${url}…`, true);
+  let payload;
+  try {
+    const response = await fetch(`/api/fetch?url=${encodeURIComponent(url)}`);
+    payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || response.statusText);
+  } catch (error) {
+    setStatus(`could not read that URL: ${error.message}`);
+    el("composer").classList.add("open");
+    return false;
+  }
+
+  el("input").value = payload.document;
+  el("url").value = payload.url;
+  el("composer").classList.remove("open");
+  // The final URL after redirects, so a shared link points where the text
+  // actually came from.
+  await loadDocument(payload.document, { refresh, source: payload.url });
+  if (payload.title) el("topic").textContent = payload.title;
+  return true;
+}
+
+async function loadDocument(text, { refresh = false, source = null } = {}) {
   state.document = text;
+  state.source = source;
+  reflectSource(source);
   state.openPanels.clear();
   state.entities.clear();
   if (refresh) state.expansions.clear();
@@ -978,7 +1023,16 @@ function boot() {
 
   el("btn-refresh").addEventListener("click", async () => {
     toggleSettings(false);
-    if (state.document) await loadDocument(state.document, { refresh: true });
+    if (state.document) {
+      await loadDocument(state.document, { refresh: true, source: state.source });
+    }
+  });
+
+  el("btn-fetch").addEventListener("click", () => loadFromUrl(el("url").value.trim()));
+  el("url").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    loadFromUrl(el("url").value.trim());
   });
 
   el("btn-collapse").addEventListener("click", () => {
@@ -993,7 +1047,16 @@ function boot() {
     }
   });
 
-  el("btn-sample").click();
+  // `?document=<url>` is the shareable form: the link carries the document, so
+  // opening it lands the reader on the same text, marks and all. Falling back
+  // to the sample keeps a bare visit from opening on an empty page.
+  const shared = new URLSearchParams(window.location.search).get("document");
+  if (shared) {
+    el("url").value = shared; // visible to correct if the fetch fails
+    loadFromUrl(shared);
+  } else {
+    el("btn-sample").click();
+  }
 }
 
 boot();

@@ -280,3 +280,42 @@ def test_clear_cache_removes_every_model(client, monkeypatch):
 
     removed = client.delete(f"/api/cache/{doc_hash(DOC)}").json()["removed"]
     assert removed == 3  # inventory + one expansion per model
+
+
+# --------------------------------------------------------------------------- #
+# Reading a document by URL
+# --------------------------------------------------------------------------- #
+
+
+def test_fetch_returns_the_document(client, monkeypatch):
+    monkeypatch.setattr(
+        server,
+        "fetch_document",
+        lambda url: {"document": "Hello.", "url": url, "title": "T", "content_type": "text/plain"},
+    )
+    body = client.get("/api/fetch", params={"url": "http://example.com/d"}).json()
+    assert body["document"] == "Hello."
+    assert body["title"] == "T"
+
+
+def test_a_refused_url_reaches_the_reader_as_its_reason(client, monkeypatch):
+    """The guard's own words, not a generic 500: the reader can act on them."""
+
+    def refuse(url):
+        raise server.FetchError("Only http and https URLs can be read.")
+
+    monkeypatch.setattr(server, "fetch_document", refuse)
+    response = client.get("/api/fetch", params={"url": "file:///etc/passwd"})
+    assert response.status_code == 400
+    assert "http and https" in response.json()["detail"]
+
+
+def test_fetching_does_not_require_a_configured_model(client, monkeypatch):
+    """A misconfigured instance should still show the text it cannot analyze."""
+    monkeypatch.setattr(server.config, "missing_requirements", lambda: ["no key"])
+    monkeypatch.setattr(
+        server,
+        "fetch_document",
+        lambda url: {"document": "Hi.", "url": url, "title": "", "content_type": "text/plain"},
+    )
+    assert client.get("/api/fetch", params={"url": "http://example.com/d"}).status_code == 200

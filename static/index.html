@@ -10,7 +10,7 @@
   <body>
     <header class="topbar">
       <div class="brand">
-        <img class="brand-mark" src="/static/furna.svg" alt="" width="18" height="18" />
+        <span class="brand-mark" role="img" aria-label="Furna"></span>
         <span>Furna</span>
       </div>
       <p id="topic" class="topic"></p>
@@ -53,6 +53,15 @@
     </header>
 
     <section id="composer" class="composer">
+      <div class="composer-url">
+        <input
+          id="url"
+          type="url"
+          inputmode="url"
+          placeholder="…or a document URL (https://…)"
+        />
+        <button id="btn-fetch" class="ghost">Fetch</button>
+      </div>
       <textarea id="input" placeholder="Paste your text here (markdown welcome)…"></textarea>
       <button id="btn-load" class="primary">Analyze</button>
     </section>
