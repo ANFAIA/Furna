@@ -675,12 +675,12 @@ async function* readSse(response) {
  * the final `result` is the complete, merged inventory — the chunks are the
  * same entities seen early, not a different set.
  */
-async function analyze(document_, { refresh = false, onChunk } = {}) {
+async function analyze(document_, { refresh = false, source = null, title = "", onChunk } = {}) {
   setStatus("analyzing entities…", true);
   const response = await fetch("/api/analyze/stream", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ document: document_, refresh }),
+    body: JSON.stringify({ document: document_, refresh, source: source || "", title }),
   });
   if (!response.ok) {
     const detail = await response.json().catch(() => ({}));
@@ -774,11 +774,36 @@ function jumpToEntity(id) {
  * reader should have to press Back through, and every panel they open would
  * otherwise be stranded behind it.
  */
-function reflectSource(url) {
+function reflectSource(url, docHash = null) {
   const here = new URL(window.location.href);
   if (url) here.searchParams.set("document", url);
   else here.searchParams.delete("document");
+  // A pasted document has no URL to share, but it does have a fingerprint, and
+  // the server can restore the whole thing from it — text, entities, panels.
+  if (!url && docHash) here.searchParams.set("doc", docHash);
+  else here.searchParams.delete("doc");
   history.replaceState(null, "", here.toString().replace(/\?$/, ""));
+}
+
+const LAST_DOCUMENT = "lastDocument";
+
+/** Restore a document from its fingerprint: the text and everything cached about it. */
+async function loadFromHash(docHash) {
+  setStatus("restoring the last document…", true);
+  try {
+    const response = await fetch(`/api/document/${encodeURIComponent(docHash)}`);
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || response.statusText);
+    el("input").value = payload.document;
+    if (payload.source) el("url").value = payload.source;
+    await loadDocument(payload.document, { source: payload.source || null });
+    return true;
+  } catch {
+    // The cache was cleared, or this is a different machine. Not worth an error
+    // message: falling back to the sample is what the reader would do anyway.
+    localStorage.removeItem(LAST_DOCUMENT);
+    return false;
+  }
 }
 
 /** Fetch a document by URL and read it.
@@ -844,6 +869,8 @@ async function loadDocument(text, { refresh = false, source = null } = {}) {
   try {
     payload = await analyze(text, {
       refresh,
+      source,
+      title: el("topic").textContent,
       onChunk: (chunk) => {
         marked += absorb(chunk.entities);
         if (chunk.topic && !el("topic").textContent) el("topic").textContent = chunk.topic;
@@ -863,6 +890,10 @@ async function loadDocument(text, { refresh = false, source = null } = {}) {
 
   state.docHash = payload.doc_hash;
   state.meta = payload;
+  // The fingerprint is the whole handle: with it the server can return the
+  // text, the inventory and every expansion, so this is all a reload needs.
+  localStorage.setItem(LAST_DOCUMENT, payload.doc_hash);
+  reflectSource(source, payload.doc_hash);
   // The merge can rename an id that two chunks disagreed on, so the final
   // inventory replaces what the chunks left rather than adding to it.
   marked += absorb(payload.entities);
@@ -1147,10 +1178,18 @@ function boot() {
   // `?document=<url>` is the shareable form: the link carries the document, so
   // opening it lands the reader on the same text, marks and all. Falling back
   // to the sample keeps a bare visit from opening on an empty page.
-  const shared = new URLSearchParams(window.location.search).get("document");
+  // Three ways in, in order of how explicit they are: a URL in the link, a
+  // fingerprint in the link, the fingerprint of whatever was open last. Only
+  // when none of those says anything does the sample get loaded.
+  const params = new URLSearchParams(window.location.search);
+  const shared = params.get("document");
+  const fingerprint = params.get("doc") || localStorage.getItem(LAST_DOCUMENT);
+
   if (shared) {
     el("url").value = shared; // visible to correct if the fetch fails
     loadFromUrl(shared);
+  } else if (fingerprint) {
+    loadFromHash(fingerprint).then((restored) => restored || el("btn-sample").click());
   } else {
     el("btn-sample").click();
   }

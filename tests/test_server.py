@@ -361,3 +361,44 @@ def test_a_failure_mid_stream_reaches_the_reader(client, monkeypatch):
     events = parse_sse(client.post("/api/analyze/stream", json={"document": DOC}).text)
     assert events[-1][0] == "error"
     assert "no structured output" in events[-1][1]["message"]
+
+
+# --------------------------------------------------------------------------- #
+# A reload keeps the document, its entities and its expansions
+# --------------------------------------------------------------------------- #
+
+
+def test_analyzing_remembers_the_document(client):
+    client.post("/api/analyze", json={"document": DOC, "source": "https://example.com/a"})
+
+    restored = client.get(f"/api/document/{doc_hash(DOC)}").json()
+    assert restored["document"] == DOC
+    assert restored["source"] == "https://example.com/a"
+
+
+def test_a_restored_document_carries_what_was_already_expanded(client):
+    client.post("/api/analyze", json={"document": DOC})
+    client.post("/api/expand", json=expand_body())
+
+    restored = client.get(f"/api/document/{doc_hash(DOC)}").json()
+    assert "qat" in restored["expanded_ids"]
+
+
+def test_reanalyzing_a_restored_document_costs_no_agent_call(client, stubbed_agents):
+    """The whole point of the fingerprint: a reload is free."""
+    client.post("/api/analyze", json={"document": DOC})
+    restored = client.get(f"/api/document/{doc_hash(DOC)}").json()
+
+    again = client.post("/api/analyze", json={"document": restored["document"]}).json()
+    assert again["cached"] is True
+    assert stubbed_agents["extract"] == 1
+
+
+def test_an_unknown_fingerprint_is_a_404(client):
+    assert client.get("/api/document/0123456789abcdef").status_code == 404
+
+
+def test_documents_lists_what_has_been_read(client):
+    client.post("/api/analyze", json={"document": DOC, "title": "QAT protocol"})
+    listed = client.get("/api/documents").json()["documents"]
+    assert [entry["title"] for entry in listed] == ["QAT protocol"]

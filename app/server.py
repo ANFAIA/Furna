@@ -56,6 +56,10 @@ def expander():
 class AnalyzeRequest(BaseModel):
     document: str = Field(min_length=1)
     refresh: bool = False
+    # Where the text came from, when the reader knows: kept with the document so
+    # a restored one can still say what it is and where it lives.
+    source: str = ""
+    title: str = ""
 
 
 MAX_SELECTION_CHARS = 2000
@@ -141,6 +145,27 @@ async def fetch(url: str) -> dict[str, str]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.get("/api/document/{doc}")
+async def document(doc: str) -> dict[str, object]:
+    """Bring a document back from its fingerprint alone.
+
+    This is what makes a reload keep everything: the browser only has to
+    remember 16 characters, and the text, its entities and every expansion are
+    already on disk under them.
+    """
+    record = cache.document(doc)
+    if not record:
+        raise HTTPException(status_code=404, detail="No document is stored under that fingerprint.")
+    writer = config.resolve("expander").label
+    return {**record, "expanded_ids": _expanded_ids(doc, writer)}
+
+
+@app.get("/api/documents")
+async def documents() -> dict[str, object]:
+    """Every document this instance has read, most recent first."""
+    return {"documents": cache.documents()}
+
+
 @app.post("/api/analyze")
 async def analyze(request: AnalyzeRequest) -> dict[str, object]:
     """Return the entity inventory for a document, from cache when possible."""
@@ -148,6 +173,7 @@ async def analyze(request: AnalyzeRequest) -> dict[str, object]:
     doc = doc_hash(request.document)
     reader = config.resolve("extractor").label
     writer = config.resolve("expander").label
+    cache.remember_document(doc, request.document, source=request.source, title=request.title)
 
     if not request.refresh:
         cached = cache.get(doc, reader, ENTITIES_KEY)
@@ -195,6 +221,7 @@ async def analyze_stream(request: AnalyzeRequest) -> StreamingResponse:
     doc = doc_hash(request.document)
     reader = config.resolve("extractor").label
     writer = config.resolve("expander").label
+    cache.remember_document(doc, request.document, source=request.source, title=request.title)
 
     async def stream() -> AsyncIterator[str]:
         cached = cache.get(doc, reader, ENTITIES_KEY) if not request.refresh else None
