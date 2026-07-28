@@ -31,37 +31,70 @@ from app.schemas import VERBOSITY_BUDGET, Entity, EntityExtraction, Expansion
 
 
 EXTRACTOR_PROMPT = """\
-You annotate documents so a reader can explore them.
+You read ONE SECTION of a longer document and list the things in it a reader
+might want explained. Another reader of the same kind handles the other
+sections, so cover this section well rather than guessing at the whole.
 
-Given the full text of a document, produce the inventory of entities a curious
-but non-expert reader would want expanded: technical concepts, methods, models,
-datasets, metrics, tools, hardware, organizations, people, papers, and notation.
+# What counts as an entity
 
-Rules that matter:
+Anything a curious but non-expert reader could stop on and think "what is that?"
 
-1. `surface_forms` must be EXACT substrings of the document, copied character for
-   character. If the text writes `wikitext-2`, do not write `WikiText-2`.
-   Include every distinct spelling: acronyms, plurals, inflections, code spans,
-   and the expanded name if both appear.
-2. Never invent a surface form that is not in the text. A wrong form makes the
-   viewer highlight nothing, which is better than highlighting the wrong span,
-   so when unsure, omit it.
-3. Prefer specific multi-word forms over generic single words. Mark
-   `1-bit QAT`, not `bit`. Skip stopword-like fragments and anything shorter than
-   3 characters unless it is real notation (e.g. `α`, `R`, `β`).
-4. Do not mark ordinary prose. If expanding it would teach the reader nothing,
-   leave it alone. Aim for 15-40 entities on a typical article.
-5. A surface form is a NAME, never a quotation. `attention residuals` is a form;
-   `the variance between seeds can be larger than the effect` is not. Nothing
-   longer than six words, and never a bare stopword like `the` or `for` — the
-   viewer marks these literally, and marking `the` underlines the whole page.
-6. Merge aliases into ONE entity. `Qwen1.5-0.5B`, `Qwen-0.5B` and `0.5B` are the
-   same model: one entity, three surface forms.
-7. `gloss` is a tooltip: one short sentence, in the document's own language.
-8. `salience` ranks how central the entity is to the document's argument, on a
-   scale from 0.0 to 1.0. Not 0 to 10.
-9. `topic` describes THIS document in one line. It is not the name of the schema
-   or of the task.
+* Names of things: models, datasets, tools, libraries, hardware, file formats,
+  organizations, people, papers, standards.
+* Acronyms and abbreviations — every single one, even when the section expands
+  it. `QAT`, `FP32`, `AR`, `MoE`.
+* Technical terms and methods, especially multi-word ones: `attention
+  residuals`, `straight-through estimator`, `learning rate warmup`.
+* Notation, symbols and units used as terms: `α`, `R_l`, `perplexity`, `tok/s`.
+* Numbers that carry meaning as a named quantity: a model size like `0.5B`, a
+  benchmark score, a threshold the section argues about.
+* Named commands, flags and code identifiers that appear in code spans.
+
+# How to read the section
+
+Go through it once, in order, and each time you meet one of the above, write it
+down with the exact characters the text used. Do not summarize the section
+first: work from its surface. Most sections of technical prose contain **5 to
+15** entities. If you found fewer than 3, you skipped acronyms or notation — go
+back for them. If you found more than 25, you are marking ordinary prose.
+
+# Rules
+
+1. `surface_forms` are EXACT substrings, copied character for character. If the
+   text writes `wikitext-2`, do not write `WikiText-2` or `Wikitext 2`. Copy;
+   never retype from memory.
+2. Never invent a form the section does not contain. A form that is not there
+   marks nothing, so when unsure, leave it out.
+3. Include every spelling the section actually uses for the same thing:
+   acronym, expansion, plural, code-span version. All of them go in ONE entity's
+   `surface_forms`, not in separate entities. `Qwen1.5-0.5B`, `Qwen-0.5B` and
+   `0.5B` are one entity with three forms.
+4. A surface form is a NAME, never a sentence. Six words at most. Never a bare
+   stopword like `the`, `for` or `you` — the viewer marks these literally, and
+   marking `the` underlines the whole page.
+5. Prefer the specific form over the generic word inside it: `1-bit QAT`, not
+   `bit`. Nothing shorter than 3 characters unless it is real notation.
+6. `id` is a lowercase slug of the canonical name: `1-bit QAT` -> `1-bit-qat`.
+7. `gloss` is a tooltip: ONE short sentence, in the document's own language.
+8. `salience` is 0.0 to 1.0 — how central this is to what the section argues.
+   Not 0 to 10.
+9. `topic` describes the DOCUMENT in one line, as best you can tell from this
+   section. It is never the name of the schema or of this task.
+
+# Example
+
+Section:
+
+    We train **1-bit QAT** from an FP32 checkpoint of `Qwen1.5-0.5B` and report
+    perplexity on wikitext-2. Attention residuals (AR) are kept in FP16.
+
+Entities: `1-bit QAT` (forms: `1-bit QAT`), `FP32`, `Qwen1.5-0.5B`,
+`perplexity`, `wikitext-2`, `attention residuals` (forms: `Attention
+residuals`, `AR`), `FP16`.
+
+Note what happened there: the acronym `AR` joined the entity it abbreviates, the
+form was copied with its original capital `A`, and `checkpoint` was left out —
+it is ordinary prose in this context, not something to explain.
 
 Write glosses in the same language as the document.
 """
@@ -451,11 +484,12 @@ def build_expander_agent():
 # --------------------------------------------------------------------------- #
 
 _EXTRACT_TEMPLATE = """\
-Extract the entity inventory for the document below.
+List the entities in the section below. Go through it in order and copy each
+name, acronym, term and notation exactly as it is written here.
 
-<document>
+<section>
 {document}
-</document>
+</section>
 """
 
 _EXPAND_TEMPLATE = """\

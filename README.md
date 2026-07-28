@@ -155,11 +155,20 @@ local expander covers the three angles itself in a single pass.
 
 Two agents, both returning structured output:
 
-**`entity-extractor`** — returns the inventory: `id`,
+**`entity-extractor`** — reads **one section at a time** and returns the
+inventory: `id`,
 `canonical`, `kind`, `gloss`, `salience` and **`surface_forms`**, the list of
 literal substrings the text uses to name the entity. Those forms are the crux of
 the system: the agent does not return offsets (it would invent them), it returns
 the exact strings and the viewer locates them itself in the already-rendered DOM.
+
+Its prompt is written for the unit it actually receives: a section, not an
+article. That matters most for small models, which under-report badly when told
+to "aim for 15-40 entities on a typical article" and then handed three
+paragraphs. It asks for 5-15 per section, names the categories they drop first
+(acronyms, notation, code identifiers), tells them to walk the text in order
+rather than summarize it, and ends with a worked example — a small model copies
+an example far more reliably than it follows a rule.
 
 It works in chunks — split on headings first, then paragraph breaks, ~2500
 characters each — run concurrently (`EXTRACTION_CONCURRENCY`, default 3). Not for

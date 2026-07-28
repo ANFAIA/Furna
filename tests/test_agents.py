@@ -906,3 +906,27 @@ async def test_the_final_step_counts_the_chunks_that_failed():
 
     steps = [step async for step in extract_entities_stream(agent, document)]
     assert steps[-1]["failed"] >= 1
+
+
+# --------------------------------------------------------------------------- #
+# What the extractor is told
+# --------------------------------------------------------------------------- #
+
+
+def test_the_extractor_is_told_it_reads_a_section_not_a_document():
+    """It runs per chunk. A per-document target makes a small model under-report."""
+    from app.agents import EXTRACTOR_PROMPT, _EXTRACT_TEMPLATE
+
+    assert "ONE SECTION" in EXTRACTOR_PROMPT
+    # A per-section count, not a per-article one. Newlines wrap it, so compare flat.
+    assert "5 to 15 entities" in " ".join(EXTRACTOR_PROMPT.replace("**", "").split())
+    assert "<section>" in _EXTRACT_TEMPLATE
+
+
+def test_the_extractor_is_told_to_catch_acronyms_and_notation():
+    """The two categories a small model drops first, and the ones readers click."""
+    from app.agents import EXTRACTOR_PROMPT
+
+    lowered = EXTRACTOR_PROMPT.lower()
+    assert "acronym" in lowered and "notation" in lowered
+    assert "AR" in EXTRACTOR_PROMPT  # the worked example folds an acronym in
