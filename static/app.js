@@ -804,6 +804,13 @@ function jumpToEntity(id) {
   if (!state.openPanels.has(instanceKey(mark))) toggleInstance(mark);
 }
 
+/** The document's topic, in the box above it. Empty means no box at all —
+ *  an empty framed panel reads as something that failed to load. */
+function setTopic(text) {
+  el("topic").textContent = text || "";
+  el("topic-box").hidden = !text;
+}
+
 /** Put the document's own URL in the address bar, or take it out.
  *
  * `replaceState`, not `pushState`: loading a document is not a navigation the
@@ -867,7 +874,7 @@ async function loadFromUrl(url, { refresh = false } = {}) {
   // The final URL after redirects, so a shared link points where the text
   // actually came from.
   await loadDocument(payload.document, { refresh, source: payload.url });
-  if (payload.title) el("topic").textContent = payload.title;
+  if (payload.title) setTopic(payload.title);
   return true;
 }
 
@@ -881,7 +888,7 @@ async function loadDocument(text, { refresh = false, source = null } = {}) {
 
   const reader = el("reader");
   reader.innerHTML = renderMarkdown(text);
-  el("topic").textContent = ""; // the previous document's, until a chunk names this one
+  setTopic(""); // the previous document's, until a chunk names this one
   renderSidebar();
 
   let marked = 0;
@@ -909,7 +916,7 @@ async function loadDocument(text, { refresh = false, source = null } = {}) {
       title: el("topic").textContent,
       onChunk: (chunk) => {
         marked += absorb(chunk.entities);
-        if (chunk.topic && !el("topic").textContent) el("topic").textContent = chunk.topic;
+        if (chunk.topic && !el("topic").textContent) setTopic(chunk.topic);
         setStatus(
           `reading ${chunk.done}/${chunk.total} · ${state.entities.size} entities so far`,
           true,
@@ -939,7 +946,7 @@ async function loadDocument(text, { refresh = false, source = null } = {}) {
   // body itself is fetched (from disk, no agent) on the first click.
   state.serverKnown = new Set(payload.expanded_ids || []);
 
-  el("topic").textContent = payload.topic || "";
+  setTopic(payload.topic || el("topic").textContent);
   // A partial reading looks exactly like a thin document unless it says so.
   const lost = payload.failed_chunks
     ? ` · ${payload.failed_chunks}/${payload.total_chunks} sections unread`

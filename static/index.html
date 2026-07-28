@@ -13,7 +13,6 @@
         <span class="brand-mark" role="img" aria-label="Furna"></span>
         <span>Furna</span>
       </div>
-      <p id="topic" class="topic"></p>
       <div class="actions">
         <button id="btn-compose" class="ghost">Paste text</button>
         <button id="btn-collapse" class="ghost">Collapse all</button>
@@ -74,7 +73,16 @@
         <section id="selection-box" class="selection-box" hidden></section>
       </aside>
 
-      <article id="reader" class="reader"></article>
+      <!-- The topic belongs to the document, not to the app, so it sits above
+           the text rather than in the toolbar. Outside `#reader` because that
+           element is replaced wholesale on every load. -->
+      <div class="document">
+        <section id="topic-box" class="topic-box" hidden>
+          <span class="topic-label">topic</span>
+          <p id="topic" class="topic"></p>
+        </section>
+        <article id="reader" class="reader"></article>
+      </div>
     </main>
 
     <footer class="statusbar">
