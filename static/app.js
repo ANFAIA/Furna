@@ -441,7 +441,10 @@ function sentenceAround(mark) {
 // Free-form selection: highlight anything, press Enter, an agent explains it
 // --------------------------------------------------------------------------- //
 
-const MIN_SELECTION = 3;
+// Two characters, because that is what an acronym is: `AR`, `FP`, `C4`. The
+// floor exists to ignore a stray click that catches one letter, not to decide
+// what is worth asking about.
+const MIN_SELECTION = 2;
 const MAX_SELECTION = 2000;
 
 // The Custom Highlight API paints a range without touching the DOM, which is the
