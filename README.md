@@ -2,7 +2,9 @@
 
 *A furna is the hollow the sea cuts into a cliff. This one is cut into a page.*
 
-Paste a text. An agent marks the recognizable entities with a discreet underline.
+Paste a text — or point at one: `?document=https://…` opens whatever is at that
+URL, so a link carries the document with it. An agent marks the recognizable
+entities with a discreet underline.
 Click one: a hole opens in the text itself and three subagents write what you need
 to know right there. Click again and it closes.
 
@@ -23,6 +25,42 @@ panel can be deepened on its own.
 The expansion is cached **per entity and length** (or per fragment), not per
 instance: if the same concept appears five times in the document, the first costs
 one agent call and the other four open instantly.
+
+## Opening a document by URL
+
+```
+http://localhost:8787/?document=https://en.wikipedia.org/wiki/Large_language_model
+```
+
+The URL bar in the composer does the same thing, and the address bar is kept in
+sync, so the link you copy is the document you are reading. HTML is reduced to
+its prose — headings kept as markdown, script and style dropped — and markdown or
+plain text arrives untouched.
+
+The fetch happens on the server, because a page on another origin will not hand
+its text to a script in the browser. That makes the server an HTTP client aimed
+by whoever opens the link, so `app/fetcher.py` is deliberately narrow:
+
+- `http` and `https` only, so `file:///etc/passwd` is not a door;
+- the resolved address must be public — a shared link cannot make the server read
+  `169.254.169.254` or something on the operator's LAN;
+- every redirect hop is re-checked, since a public host can redirect inward;
+- 2MB and 15s caps, and a content type that is actually text.
+
+`FURNA_ALLOW_PRIVATE_FETCH=1` lifts the address check for reading documents off
+localhost while developing. Leave it off anywhere more than one person can reach.
+The check resolves the name and the connection happens after, so it is not proof
+against DNS rebinding; it stops the ordinary cases, which is what a reader
+pasting URLs runs into.
+
+A raw markdown file is the cleanest case — nothing to strip:
+
+```
+http://localhost:8787/?document=https://gist.githubusercontent.com/karpathy/442a6bf555914893e9891c11519de94f/raw/ac46de1ad27f92b28ac95459c782c07f6b8c964a/llm-wiki.md
+```
+
+Pages that build their text in JavaScript arrive nearly empty, and the fetch says
+so rather than analyzing a blank document.
 
 ## Getting started
 
@@ -55,26 +93,43 @@ LOCAL_BASE_URL=http://localhost:1234/v1     # Ollama: http://localhost:11434/v1
 LLM_PROVIDER=anthropic
 ANTHROPIC_API_KEY=sk-ant-...
 
+# OpenRouter, including its free tier
+LLM_PROVIDER=openrouter
+OPENROUTER_API_KEY=sk-or-...
+OPENROUTER_MODEL=inclusionai/ling-3.0-flash:free
+
 # Hybrid: cheap local extraction, strong remote synthesis
 EXTRACTOR_MODEL=local:nvidia/nemotron-3-nano-4b
 EXPANDER_MODEL=anthropic:claude-sonnet-5
 ```
 
-A name containing a colon that is neither `local:` nor `anthropic:` is read as a
-model, not a provider, so Ollama's `qwen3:4b` works as written.
+A name containing a colon that is not a known provider prefix is read as a model,
+so Ollama's `qwen3:4b` and OpenRouter's `…:free` suffix both work as written.
 
-**Context window.** The DeepAgents scaffolding — tool schemas, todo middleware,
-the structured-output schema — costs roughly **6.5k prompt tokens before the
-document is even added**. An 8k window therefore leaves ~1.6k for the answer and
-the extraction truncates mid-JSON. Give the local server **16k or more**; in LM
-Studio that is the model's *Context Length* slider. `LOCAL_MAX_TOKENS` (default
-3000) caps what the code asks for on top of that.
+**Context window.** Read from the server rather than assumed: LM Studio reports
+the loaded window on `/api/v0/models`, OpenRouter publishes it in its catalogue.
+The request is sized from that — and the completion ceiling is *halved*, because
+an agent loop re-sends the whole conversation on its second turn. Give a local
+server **16k or more**; in LM Studio that is the model's *Context Length* slider.
 
-**Structured output.** Anthropic gets it through a forced tool call
-(`ToolStrategy`); local servers get the native `json_schema` response format
-(`ProviderStrategy`). Local models frequently ignore a forced tool call and
-finish with no structured response at all, which is why the strategy follows the
-provider rather than being fixed.
+**Structured output.** Three modes, picked from what the model can actually do:
+
+| Provider | How the shape is requested |
+|---|---|
+| Anthropic | forced tool call (`ToolStrategy`) |
+| Local / OpenRouter with the capability | native `json_schema` response format |
+| Anything else | asked for in the prompt, read back out of the prose |
+
+The third mode is not an edge case: **only 4 of OpenRouter's 15 free models
+advertise `structured_outputs`**, and the largest of them (`nemotron-3-ultra-550b`,
+a 1M-token window) is not one. Asking anyway is worse than not asking — the
+request lands on whichever provider is free, and one without the feature rejects
+it, so the same model works or fails by luck of the draw.
+
+The capability is read from OpenRouter's catalogue and it also gates
+`provider.require_parameters`, the directive that pins routing to providers
+honouring what was sent. Demanding a feature no provider serves 404s **every**
+request, which is exactly what happened before the gate existed.
 
 **Subagents and small models.** Orchestrating three delegations demands tool
 calling that a 4B model rarely sustains: the typical result is an empty panel, not
@@ -84,14 +139,21 @@ local expander covers the three angles itself in a single pass.
 
 ## The agents (DeepAgents)
 
-Two agents built with `deepagents.create_deep_agent`, both returning structured
-output:
+Two agents, both returning structured output:
 
-**`entity-extractor`** — one pass over the document, returns the inventory: `id`,
+**`entity-extractor`** — returns the inventory: `id`,
 `canonical`, `kind`, `gloss`, `salience` and **`surface_forms`**, the list of
 literal substrings the text uses to name the entity. Those forms are the crux of
 the system: the agent does not return offsets (it would invent them), it returns
 the exact strings and the viewer locates them itself in the already-rendered DOM.
+
+It works in chunks, ~2500 characters each, run concurrently
+(`EXTRACTION_CONCURRENCY`, default 3). Not for context — for the completion
+budget: a model asked for twenty entities at once spends its budget reasoning and
+truncates mid-JSON, and some models cannot be told to stop reasoning. A chunk
+that fails costs its own entities, not the document. The merge folds on `id` and
+`canonical` only — folding on surface forms chains unrelated entities together,
+since `QAT` is a form of both `QAT` and `1-bit QAT`.
 
 **`entity-expander`** — orchestrator with three subagents, run per entity:
 
@@ -103,6 +165,15 @@ the exact strings and the viewer locates them itself in the already-rendered DOM
 
 The orchestrator synthesizes the three reports into **one** panel. It does not
 concatenate them, and it attributes nothing to the subagents.
+
+**When there are no subagents, there is no harness.** An agent that calls no
+tools still pays ~1700 prompt tokens of tool schemas and, worse, a second turn
+that re-sends the whole conversation. On an 8k window that overhead was the
+difference between a panel and `Context size has been exceeded`. So both agents
+have a `Direct…` form — a plain structured call that mimics the slice of
+`astream` the streaming code consumes — and DeepAgents is used only for the
+expander when subagents are actually on. The extractor pays that saving per
+chunk.
 
 The same agent handles free-form selections under a different framing: instead of
 defining an entity, it takes the fragment apart — what it says, what it takes for
@@ -187,6 +258,12 @@ reader is already deep in a sub-topic and the rest of the document is noise.
 If you click two instances of the same entity at once, an `asyncio.Lock` per key
 makes the agent run once while both wait on the same result.
 
+**Prefetch is lazy and hover-only.** Hovering a mark for 350ms starts its
+expansion, at most two at a time, and only at the length the reader has chosen.
+Nothing is warmed on load: pre-expanding a document would spend an agent call on
+every entity for a reader who will open three. Deepening stays a deliberate act —
+hover never buys the longer answer.
+
 **Re-analyze entities**, in the settings menu, ignores the cache and rebuilds the inventory.
 
 ## Length
@@ -204,7 +281,11 @@ does not make every other panel verbose.
 | `POST` | `/api/expand` | SSE: `progress`, then `partial` per token batch, then one `result`. Takes `mode`, `verbosity` and the drill-down `path` |
 | `GET` | `/api/health` | Provider and model per role, and what is still unconfigured |
 | `DELETE` | `/api/cache/{doc_hash}` | Empties one document's cache |
+| `GET` | `/api/fetch?url=…` | Reads a document off the web. `400` with the guard's own words when the URL is refused |
 | `GET` | `/api/sample` | Sample document |
+
+`/api/fetch` deliberately does not check the model configuration: a misconfigured
+instance should still show you the text it cannot analyze.
 
 ## Tests
 
@@ -213,10 +294,17 @@ uv run pytest -q
 ```
 
 They cover stream progress parsing, the expander's streaming against a fake agent,
-incremental parsing of the half-written panel, provider/model resolution per
-role, the cache (roundtrip, per-model partitioning, corruption, keys containing
-`../`) and the endpoints with the agents stubbed out. What they do not cover is
-the quality of what the model writes.
+incremental parsing of the half-written panel, chunking and merge, provider/model
+resolution per role, the cache (roundtrip, per-model partitioning, corruption,
+keys containing `../`), the fetch guards (scheme, private addresses, redirect
+hops, size, content type) and the endpoints with the agents stubbed out.
+
+`conftest.py` pins the environment and stubs the window probe and the OpenRouter
+catalogue: without it a developer's own `.env` decides which provider the suite
+exercises, and a capability check reaching the network makes the run depend on
+the day.
+
+What they do not cover is the quality of what the model writes.
 
 ## Known limits
 
@@ -233,6 +321,12 @@ the quality of what the model writes.
   not a failure the client can recover from.
 - Nesting stops at three levels. Deeper is possible but the panels get too narrow
   to read and the reader has usually lost the original sentence by then.
+- A model without structured output is asked for JSON in words, and sometimes
+  answers with prose around it. The parser digs the object out of code fences and
+  preambles, but a model that never emits one fails the call.
+- The URL fetch reads what the server gets: no JavaScript, no paywalls, no login.
+  Its HTML-to-text pass is crude on purpose — no boilerplate stripping — so a
+  cluttered page arrives with its navigation prose in the document.
 - A nested panel reuses the cached entry written for the top level, so it does not
   re-explain the term in light of where the reader came from. That is the explicit
   trade for not multiplying the cache by every path.
