@@ -110,7 +110,10 @@ body {
   color: var(--ink-soft);
 }
 
-.actions { display: flex; gap: 0.35rem; }
+/* `margin-left: auto` rather than a spacer element: the topic used to hold this
+   gap open with `flex: 1`, and moving it into the document left the buttons
+   sitting against the brand. */
+.actions { display: flex; gap: 0.35rem; margin-left: auto; }
 
 button {
   font: inherit;
