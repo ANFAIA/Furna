@@ -126,7 +126,13 @@ def _reasoning_aware_openai_class():
 
 
 @lru_cache(maxsize=None)
-def _build(provider: str, model: str, base_url: str | None, max_tokens: int) -> BaseChatModel:
+def _build(
+    provider: str,
+    model: str,
+    base_url: str | None,
+    max_tokens: int,
+    structured: bool = True,
+) -> BaseChatModel:
     if provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
 
@@ -161,6 +167,7 @@ def _build(provider: str, model: str, base_url: str | None, max_tokens: int) -> 
             extra_body=(
                 {"provider": {"require_parameters": True}}
                 if not is_local
+                and structured
                 and supports_structured_output(
                     ModelSpec(role="", provider=provider, model=model, base_url=base_url)
                 )
@@ -299,14 +306,24 @@ def document_budget(spec: ModelSpec) -> int | None:
     return None if not window else max(600, (window // 8) * 4)
 
 
-def chat_model(role: str, max_tokens: int) -> BaseChatModel:
+def chat_model(role: str, max_tokens: int, structured: bool = True) -> BaseChatModel:
     """Build the model for a role.
 
     ``max_tokens`` is what the code would like; a model whose window we can
     discover gets whatever that window can actually afford instead.
+
+    ``structured=False`` also drops the routing directive that pins the request
+    to providers honouring a JSON schema — it is the model used after the
+    schema turned out not to be servable.
     """
     spec = resolve(role)
-    return _build(spec.provider, spec.model, spec.base_url, completion_ceiling(spec, max_tokens))
+    return _build(
+        spec.provider,
+        spec.model,
+        spec.base_url,
+        completion_ceiling(spec, max_tokens),
+        structured=structured,
+    )
 
 
 def response_strategy(role: str, schema: type):

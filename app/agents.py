@@ -161,6 +161,25 @@ and how it relates to the other entities present. Then write ONE panel.""",
 )
 
 
+#: What a provider says when it will not serve a JSON schema.
+#:
+#: The catalogue is not enough to know this. `nemotron-3-super-120b` advertises
+#: `structured_outputs`, yet asking for one routes to no endpoint at all: the
+#: advertised capability is the union across providers, and the free endpoints
+#: are not the ones that have it. So the answer comes from trying.
+_SCHEMA_REFUSALS = (
+    "no endpoints found",  # 404: require_parameters matched nothing
+    "structured outputs",  # 400: the provider says so outright
+    "response_format",
+    "json_schema",
+)
+
+
+def _schema_unservable(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(phrase in text for phrase in _SCHEMA_REFUSALS)
+
+
 class DirectExtractor:
     """The extractor with no agent harness around it.
 
@@ -170,16 +189,42 @@ class DirectExtractor:
     which every model that cannot be handed a schema fails at the first step.
     """
 
-    def __init__(self, model, system_prompt: str, structured: bool = True) -> None:
+    def __init__(self, model, system_prompt: str, structured: bool = True, plain=None) -> None:
+        self.base_prompt = system_prompt
+        self.plain = plain  # builds a model with no schema and no routing directive
+        self._use(model, structured)
+
+    def _use(self, model, structured: bool) -> None:
+        self.structured = structured
         self.system_prompt = (
-            system_prompt if structured else system_prompt + EXTRACTION_JSON_INSTRUCTION
+            self.base_prompt if structured else self.base_prompt + EXTRACTION_JSON_INSTRUCTION
         )
         self.model = _schema_bound(model, EntityExtraction) if structured else model
 
+    def _downgrade(self) -> bool:
+        """Switch to the prompted mode, and report whether one is available.
+
+        Chunks run concurrently, so several calls hit the refusal at the same
+        moment and only the first one actually changes anything. The others must
+        still retry — returning False for them cost three of four chunks in a
+        run that looked like a success.
+        """
+        if not self.plain:
+            return False
+        if self.structured:
+            self._use(self.plain(), False)
+        return True
+
     async def ainvoke(self, payload: dict) -> dict:
-        answer = await self.model.ainvoke(
-            [{"role": "system", "content": self.system_prompt}, *payload["messages"]]
-        )
+        messages = [{"role": "system", "content": self.system_prompt}, *payload["messages"]]
+        try:
+            answer = await self.model.ainvoke(messages)
+        except Exception as exc:
+            if not (_schema_unservable(exc) and self._downgrade()):
+                raise
+            answer = await self.model.ainvoke(
+                [{"role": "system", "content": self.system_prompt}, *payload["messages"]]
+            )
         visible, _, _ = split_thinking(_text_of(getattr(answer, "content", "")), False)
         try:
             data = json.loads(json_object_in(visible))
@@ -197,6 +242,7 @@ def build_extractor_agent():
         chat_model("extractor", max_tokens=16000),
         EXTRACTOR_PROMPT,
         supports_structured_output(resolve("extractor")),
+        plain=lambda: chat_model("extractor", max_tokens=16000, structured=False),
     )
 
 
@@ -307,28 +353,52 @@ class DirectExpander:
     keep working unchanged.
     """
 
-    def __init__(self, model, system_prompt: str, structured: bool = True) -> None:
+    def __init__(self, model, system_prompt: str, structured: bool = True, plain=None) -> None:
         # Most of OpenRouter's free tier cannot be handed a schema at all, so
         # the shape has to be asked for in words and read back out of the prose.
-        self.system_prompt = system_prompt if structured else system_prompt + JSON_ONLY_INSTRUCTION
+        self.base_prompt = system_prompt
+        self.plain = plain
+        self._use(model, structured)
+
+    def _use(self, model, structured: bool) -> None:
         self.structured = structured
+        self.system_prompt = (
+            self.base_prompt if structured else self.base_prompt + JSON_ONLY_INSTRUCTION
+        )
         self.model = _schema_bound(model, Expansion) if structured else model
 
-    def astream(self, payload: dict, stream_mode: Any = None) -> AsyncIterator[tuple[str, Any]]:
-        messages = [
-            {"role": "system", "content": self.system_prompt},
-            *payload["messages"],
-        ]
+    def _downgrade(self) -> bool:
+        """As in `DirectExtractor`: already downgraded still means retry."""
+        if not self.plain:
+            return False
+        if self.structured:
+            self._use(self.plain(), False)
+        return True
 
+    def astream(self, payload: dict, stream_mode: Any = None) -> AsyncIterator[tuple[str, Any]]:
         async def generator():
             answer = ""
             inside_think = False
-            async for chunk in self.model.astream(messages):
-                yield "messages", (chunk, {})
-                visible, _, inside_think = split_thinking(
-                    _text_of(getattr(chunk, "content", "")), inside_think
-                )
-                answer += visible
+            started = False
+            try:
+                async for chunk in self._tokens(payload):
+                    started = True
+                    yield "messages", (chunk, {})
+                    visible, _, inside_think = split_thinking(
+                        _text_of(getattr(chunk, "content", "")), inside_think
+                    )
+                    answer += visible
+            except Exception as exc:
+                # Only worth retrying before anything reached the reader: past
+                # that, restarting would replay the panel from the top.
+                if started or not (_schema_unservable(exc) and self._downgrade()):
+                    raise
+                async for chunk in self._tokens(payload):
+                    yield "messages", (chunk, {})
+                    visible, _, inside_think = split_thinking(
+                        _text_of(getattr(chunk, "content", "")), inside_think
+                    )
+                    answer += visible
 
             try:
                 data = json.loads(json_object_in(answer))
@@ -340,6 +410,12 @@ class DirectExpander:
             yield "values", {"structured_response": Expansion(**data)}
 
         return generator()
+
+    def _tokens(self, payload: dict):
+        """The stream itself, rebuilt on retry so it picks up the new prompt."""
+        return self.model.astream(
+            [{"role": "system", "content": self.system_prompt}, *payload["messages"]]
+        )
 
 
 def build_expander_agent():
@@ -353,7 +429,12 @@ def build_expander_agent():
     spec = resolve("expander")
     model = chat_model("expander", max_tokens=8000)
     if not uses_subagents():
-        return DirectExpander(model, SOLO_EXPANDER_PROMPT, supports_structured_output(spec))
+        return DirectExpander(
+            model,
+            SOLO_EXPANDER_PROMPT,
+            supports_structured_output(spec),
+            plain=lambda: chat_model("expander", max_tokens=8000, structured=False),
+        )
 
     configure_harness()
     return create_deep_agent(
@@ -628,9 +709,15 @@ async def extract_entities_stream(agent, document: str) -> AsyncIterator[dict]:
     # Re-merge in document order: which chunk's `topic` and `kind` win is decided
     # by position in the text, not by which model call happened to return first.
     parts.sort(key=lambda pair: pair[0])
-    yield {"done": len(chunks), "total": len(chunks), "extraction": merge_extractions(
-        [part for _, part in parts]
-    )}
+    yield {
+        "done": len(chunks),
+        "total": len(chunks),
+        # A run where three of four chunks failed still returns entities, and
+        # without this it is indistinguishable from a document that simply had
+        # few. The reader deserves to know a third of the text went unread.
+        "failed": len(failures),
+        "extraction": merge_extractions([part for _, part in parts]),
+    }
 
 
 async def extract_entities(agent, document: str) -> EntityExtraction:

@@ -101,6 +101,12 @@ OPENROUTER_MODEL=inclusionai/ling-3.0-flash:free
 # Hybrid: cheap local extraction, strong remote synthesis
 EXTRACTOR_MODEL=local:nvidia/nemotron-3-nano-4b
 EXPANDER_MODEL=anthropic:claude-sonnet-5
+
+# The two roles pull in different directions. Extraction runs once per chunk of
+# a few paragraphs, so it wants speed; expansion runs once per entity and can
+# afford the slower, larger model.
+EXTRACTOR_MODEL=openrouter:nvidia/nemotron-3-super-120b-a12b:free
+EXPANDER_MODEL=openrouter:nvidia/nemotron-3-ultra-550b-a55b:free
 ```
 
 A name containing a colon that is not a known provider prefix is read as a model,
@@ -130,6 +136,14 @@ The capability is read from OpenRouter's catalogue and it also gates
 `provider.require_parameters`, the directive that pins routing to providers
 honouring what was sent. Demanding a feature no provider serves 404s **every**
 request, which is exactly what happened before the gate existed.
+
+**The catalogue is a hint, not an answer.** `nemotron-3-super-120b` advertises
+`structured_outputs` and still 404s when asked for one: the advertised list is
+the union across a model's providers, and the free endpoints are not the ones
+that have it. So a refusal — `No endpoints found`, or a provider saying so
+outright — downgrades that agent to the prompted mode and retries, for the rest
+of the run rather than for the one call. An unrelated failure (a rate limit, a
+timeout) does not trigger it.
 
 **Subagents and small models.** Orchestrating three delegations demands tool
 calling that a 4B model rarely sustains: the typical result is an empty panel, not

@@ -228,6 +228,9 @@ async def analyze_stream(request: AnalyzeRequest) -> StreamingResponse:
                         "doc_hash": doc,
                         "cached": False,
                         "expanded_ids": _expanded_ids(doc, writer),
+                        # Not cached: it describes this run, not the inventory.
+                        "failed_chunks": step.get("failed", 0),
+                        "total_chunks": step["total"],
                         **payload,
                     },
                 )

@@ -805,3 +805,104 @@ async def test_an_entity_two_chunks_share_is_only_announced_once():
         for entity in step["entities"]
     ]
     assert [e.id for e in announced] == ["qat"]
+
+
+# --------------------------------------------------------------------------- #
+# When a provider will not serve the schema it advertised
+# --------------------------------------------------------------------------- #
+
+
+class RefusesSchema:
+    """A model that 404s while a schema is bound and answers once it is not."""
+
+    def __init__(self, answer: str) -> None:
+        self.answer, self.bound, self.calls = answer, False, 0
+
+    def bind(self, **_kwargs):
+        clone = RefusesSchema(self.answer)
+        clone.bound, clone.parent = True, self
+        return clone
+
+    async def ainvoke(self, _messages):
+        self.calls += 1
+        if self.bound:
+            self.parent.calls += 1
+            raise RuntimeError(
+                "Error code: 404 - {'error': {'message': 'No endpoints found that can "
+                "handle the requested parameters.', 'code': 404}}"
+            )
+        return type("Message", (), {"content": self.answer})()
+
+
+@pytest.mark.asyncio
+async def test_a_refused_schema_falls_back_to_asking_in_words():
+    """The catalogue advertises the capability; the free endpoints do not have it."""
+    from app.agents import DirectExtractor
+
+    inventory = '{"topic": "QAT", "entities": [{"id": "qat", "canonical": "QAT", '
+    inventory += '"kind": "method", "gloss": "", "surface_forms": ["QAT"]}]}'
+    plain = RefusesSchema(inventory)
+    extractor = DirectExtractor(
+        RefusesSchema(inventory), "SYSTEM", structured=True, plain=lambda: plain
+    )
+
+    result = await extractor.ainvoke({"messages": [{"role": "user", "content": "doc"}]})
+    assert [e.id for e in result["structured_response"].entities] == ["qat"]
+    assert extractor.structured is False  # and stays down for the next chunk
+    assert "JSON object" in extractor.system_prompt
+
+
+@pytest.mark.asyncio
+async def test_the_downgrade_is_not_retried_for_an_unrelated_failure():
+    from app.agents import DirectExtractor
+
+    class Broken:
+        def bind(self, **_kwargs):
+            return self
+
+        async def ainvoke(self, _messages):
+            raise RuntimeError("rate limited")
+
+    extractor = DirectExtractor(Broken(), "SYSTEM", structured=True, plain=Broken)
+    with pytest.raises(RuntimeError, match="rate limited"):
+        await extractor.ainvoke({"messages": [{"role": "user", "content": "doc"}]})
+    assert extractor.structured is True
+
+
+@pytest.mark.asyncio
+async def test_every_concurrent_chunk_retries_after_the_first_downgrade():
+    """Chunks fail at the same moment; only the first one changes any state.
+
+    Seen live: four chunks, four 404s, one retry. Three quarters of the document
+    went unread and the run still looked like a success.
+    """
+    from app.agents import DirectExtractor
+
+    inventory = '{"entities": [{"id": "qat", "canonical": "QAT", "kind": "method", '
+    inventory += '"gloss": "", "surface_forms": ["QAT"]}]}'
+    extractor = DirectExtractor(
+        RefusesSchema(inventory),
+        "SYSTEM",
+        structured=True,
+        plain=lambda: RefusesSchema(inventory),
+    )
+    extractor._use(extractor.plain(), True)  # the bound, refusing model
+
+    results = await asyncio.gather(
+        *(extractor.ainvoke({"messages": [{"role": "user", "content": "doc"}]}) for _ in range(4))
+    )
+    assert all(r["structured_response"].entities for r in results)
+
+
+@pytest.mark.asyncio
+async def test_the_final_step_counts_the_chunks_that_failed():
+    from app.agents import extract_entities_stream
+
+    agent = ScriptedExtractor([
+        EntityExtraction(entities=[make_entity("qat", ["QAT"])]),
+        RuntimeError("length limit was reached"),
+    ])
+    document = "\n\n".join("## H%d\n\n%s" % (i, "word " * 500) for i in range(2))
+
+    steps = [step async for step in extract_entities_stream(agent, document)]
+    assert steps[-1]["failed"] >= 1

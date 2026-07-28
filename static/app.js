@@ -825,8 +825,14 @@ async function loadDocument(text, { refresh = false, source = null } = {}) {
   state.serverKnown = new Set(payload.expanded_ids || []);
 
   el("topic").textContent = payload.topic || "";
+  // A partial reading looks exactly like a thin document unless it says so.
+  const lost = payload.failed_chunks
+    ? ` · ${payload.failed_chunks}/${payload.total_chunks} sections unread`
+    : "";
   setStatus(
-    `${payload.entities.length} entities · ${marked} instances${payload.cached ? " · from cache" : ""}`,
+    `${payload.entities.length} entities · ${marked} instances${
+      payload.cached ? " · from cache" : ""
+    }${lost}`,
   );
   syncActiveMarks();
 }
