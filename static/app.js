@@ -721,7 +721,13 @@ function renderSidebar() {
   const query = el("filter").value.trim().toLowerCase();
   const entities = [...state.entities.values()]
     .filter((entity) => !query || entity.canonical.toLowerCase().includes(query) || entity.kind.includes(query))
-    .sort((a, b) => (b.salience ?? 0) - (a.salience ?? 0));
+    // Alphabetical, so a reader looking for a term knows where it is. Salience
+    // ordering put the same list in a different order after every extraction,
+    // and it is a number the model guesses at. `localeCompare` with `numeric`
+    // keeps `1.8B` after `1B`, and accents sort where a reader expects.
+    .sort((a, b) =>
+      a.canonical.localeCompare(b.canonical, undefined, { numeric: true, sensitivity: "base" }),
+    );
 
   // An entity whose surface forms matched nothing has no mark to jump to, so a
   // row for it is a dead control. It stays out of the list and out of the count.
