@@ -1100,3 +1100,59 @@ def test_a_section_with_no_findable_names_gets_no_empty_block():
 
     request = extraction_request("this section is entirely ordinary prose.")
     assert "<candidates>" not in request
+
+
+# --------------------------------------------------------------------------- #
+# Reading an inventory out of an answer that is not whole
+# --------------------------------------------------------------------------- #
+
+
+def entity_json(entity_id: str) -> str:
+    return (
+        f'{{"id": "{entity_id}", "canonical": "{entity_id.upper()}", "kind": "method", '
+        f'"gloss": "", "surface_forms": ["{entity_id.upper()}"]}}'
+    )
+
+
+def test_a_whole_inventory_parses_normally():
+    from app.agents import parse_inventory
+
+    text = f'{{"topic": "QAT", "entities": [{entity_json("qat")}]}}'
+    inventory = parse_inventory(text)
+    assert inventory.topic == "QAT"
+    assert [e.id for e in inventory.entities] == ["qat"]
+
+
+def test_entities_written_before_the_answer_broke_are_kept():
+    """Seen live with a model that cannot be handed a schema: three of four
+    sections were lost to a single malformed tail."""
+    from app.agents import parse_inventory
+
+    text = f'{{"entities": [{entity_json("qat")}, {entity_json("bitnet")}, {{"id": "cut'
+    assert [e.id for e in parse_inventory(text).entities] == ["qat", "bitnet"]
+
+
+def test_a_broken_entity_costs_only_itself():
+    from app.agents import parse_inventory
+
+    text = f'{{"entities": [{{"id": "no-name"}}, {entity_json("qat")}] '
+    assert [e.id for e in parse_inventory(text).entities] == ["qat"]
+
+
+def test_braces_inside_strings_do_not_confuse_the_salvage():
+    from app.agents import parse_inventory
+
+    entity = (
+        '{"id": "fmt", "canonical": "{format}", "kind": "other", "gloss": "A \\"brace\\" {x}", '
+        '"surface_forms": ["{format}"]}'
+    )
+    text = f'{{"entities": [{entity}, {{"id": "cut'
+    assert [e.canonical for e in parse_inventory(text).entities] == ["{format}"]
+
+
+def test_an_answer_with_nothing_readable_still_fails():
+    """Salvaging must not turn a refusal into an empty, cached inventory."""
+    from app.agents import parse_inventory
+
+    with pytest.raises(RuntimeError, match="nothing could be read"):
+        parse_inventory("I cannot help with that request.")

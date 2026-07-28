@@ -286,6 +286,70 @@ async def _retrying(call, label: str, attempts: int = RETRY_SAME_ERROR):
             await asyncio.sleep(RETRY_DELAY)
 
 
+def _objects_in(text: str) -> list[str]:
+    """Every balanced `{…}` in `text`, at any depth, quotes and escapes respected.
+
+    Depth matters: the entities live inside a wrapper object, so a scan that
+    only sees top-level braces finds exactly the one object that was already
+    known to be broken.
+    """
+    found: list[str] = []
+    starts: list[int] = []
+    in_string = escaped = False
+    for index, char in enumerate(text):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            starts.append(index)
+        elif char == "}" and starts:
+            found.append(text[starts.pop() : index + 1])
+    return found
+
+
+def parse_inventory(text: str) -> EntityExtraction:
+    """Read an inventory out of an answer, salvaging one that is not whole.
+
+    A model that cannot be handed a schema returns malformed JSON often enough
+    that failing the chunk means losing whole sections of the document — seen
+    live: three of four. The entities are independent objects, so the ones
+    written before the answer went wrong are still good, and a partial
+    inventory beats none.
+    """
+    try:
+        return EntityExtraction(**json.loads(json_object_in(text)))
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+
+    entities = []
+    for chunk in _objects_in(text):
+        try:
+            candidate = json.loads(chunk)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(candidate, dict) or "canonical" not in candidate:
+            continue  # the wrapper object, or something else entirely
+        try:
+            entities.append(Entity(**candidate))
+        except ValueError:
+            continue  # one unusable entity, not a lost section
+
+    if not entities:
+        raise RuntimeError(
+            "The model's inventory was not valid JSON and nothing could be read "
+            f"out of it. It began: {text.strip()[:120]!r}"
+        )
+    log.warning("salvaged %d entities from a malformed inventory", len(entities))
+    return EntityExtraction(entities=entities)
+
+
 class DirectExtractor:
     """The extractor with no agent harness around it.
 
@@ -332,23 +396,21 @@ class DirectExtractor:
                 [{"role": "system", "content": self.system_prompt}, *payload["messages"]]
             )
         visible, _, _ = split_thinking(_text_of(getattr(answer, "content", "")), False)
-        try:
-            data = json.loads(json_object_in(visible))
-        except json.JSONDecodeError as exc:
-            raise RuntimeError(
-                "The model's inventory was not valid JSON — usually a completion "
-                f"budget too small to finish the object. {exc}"
-            ) from exc
-        return {"structured_response": EntityExtraction(**data)}
+        return {"structured_response": parse_inventory(visible)}
 
 
 def build_extractor_agent():
     """Single-shot agent: document in, structured entity inventory out."""
+    # No thinking: the reader never sees the extractor's scratchpad, and on a
+    # reasoning model it routinely spent the whole completion budget before
+    # writing a single entity.
     return DirectExtractor(
-        chat_model("extractor", max_tokens=16000),
+        chat_model("extractor", max_tokens=16000, thinking=False),
         EXTRACTOR_PROMPT,
         supports_structured_output(resolve("extractor")),
-        plain=lambda: chat_model("extractor", max_tokens=16000, structured=False),
+        plain=lambda: chat_model(
+            "extractor", max_tokens=16000, structured=False, thinking=False
+        ),
     )
 
 

@@ -125,6 +125,33 @@ def _reasoning_aware_openai_class():
     return ReasoningChatOpenAI
 
 
+def _extra_body(
+    provider: str, model: str, base_url: str | None, structured: bool, thinking: bool
+) -> dict:
+    """Provider directives that ride along with the request.
+
+    Local servers get none of this: it is OpenRouter routing vocabulary.
+    """
+    if provider == "local":
+        return {}
+
+    body: dict = {}
+    # One OpenRouter model is served by several providers that do not all
+    # implement the same features, so pin the routing to those that accept what
+    # we send — but only when the model advertises the feature at all, since
+    # otherwise no endpoint qualifies and every request 404s.
+    if structured and supports_structured_output(
+        ModelSpec(role="", provider=provider, model=model, base_url=base_url)
+    ):
+        body["provider"] = {"require_parameters": True}
+    # A scratchpad nobody reads is paid for twice: once in tokens, once in the
+    # completion budget it eats before the answer starts. Extraction shows none
+    # of it, so it asks for none.
+    if not thinking:
+        body["reasoning"] = {"enabled": False, "exclude": True}
+    return body
+
+
 @lru_cache(maxsize=None)
 def _build(
     provider: str,
@@ -132,6 +159,7 @@ def _build(
     base_url: str | None,
     max_tokens: int,
     structured: bool = True,
+    thinking: bool = True,
 ) -> BaseChatModel:
     if provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
@@ -164,15 +192,7 @@ def _build(
             # accept what we send — but only when the model advertises the
             # feature at all, since otherwise no endpoint qualifies and every
             # request 404s.
-            extra_body=(
-                {"provider": {"require_parameters": True}}
-                if not is_local
-                and structured
-                and supports_structured_output(
-                    ModelSpec(role="", provider=provider, model=model, base_url=base_url)
-                )
-                else None
-            ),
+            extra_body=_extra_body(provider, model, base_url, structured, thinking) or None,
         )
 
     raise ValueError(
@@ -306,7 +326,9 @@ def document_budget(spec: ModelSpec) -> int | None:
     return None if not window else max(600, (window // 8) * 4)
 
 
-def chat_model(role: str, max_tokens: int, structured: bool = True) -> BaseChatModel:
+def chat_model(
+    role: str, max_tokens: int, structured: bool = True, thinking: bool = True
+) -> BaseChatModel:
     """Build the model for a role.
 
     ``max_tokens`` is what the code would like; a model whose window we can
@@ -314,7 +336,8 @@ def chat_model(role: str, max_tokens: int, structured: bool = True) -> BaseChatM
 
     ``structured=False`` also drops the routing directive that pins the request
     to providers honouring a JSON schema — it is the model used after the
-    schema turned out not to be servable.
+    schema turned out not to be servable. ``thinking=False`` asks the provider
+    to skip the scratchpad entirely.
     """
     spec = resolve(role)
     return _build(
@@ -323,6 +346,7 @@ def chat_model(role: str, max_tokens: int, structured: bool = True) -> BaseChatM
         spec.base_url,
         completion_ceiling(spec, max_tokens),
         structured=structured,
+        thinking=thinking,
     )
 
 

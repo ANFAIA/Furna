@@ -231,3 +231,25 @@ def test_structured_output_capability_is_read_from_the_catalogue(monkeypatch):
 def test_a_local_server_gets_no_routing_directives(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "local")
     assert config.chat_model("expander", max_tokens=2000).extra_body is None
+
+
+def test_the_extractor_can_ask_for_no_reasoning(monkeypatch):
+    """A scratchpad nobody reads is paid for twice: in tokens and in budget."""
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    model = config.chat_model("extractor", max_tokens=2000, thinking=False)
+    assert model.extra_body["reasoning"] == {"enabled": False, "exclude": True}
+
+
+def test_reasoning_is_left_alone_by_default(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    model = config.chat_model("expander", max_tokens=2000)
+    assert "reasoning" not in (model.extra_body or {})
+
+
+def test_a_local_server_gets_no_openrouter_directives(monkeypatch):
+    """`reasoning` and `provider` are OpenRouter routing vocabulary."""
+    monkeypatch.setenv("LLM_PROVIDER", "local")
+    model = config.chat_model("extractor", max_tokens=2000, thinking=False)
+    assert model.extra_body is None
