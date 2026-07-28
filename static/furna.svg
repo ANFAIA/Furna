@@ -1,28 +1,35 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Furna">
   <title>Furna</title>
   <!--
-    An inverted U — the mouth of the cave — with a light burning inside it.
-    Two strokes and a dot: at 16px the arch still reads as an arch and the dot
-    still reads as a light, which is the only test an icon has to pass.
+    An inverted U and an upright U meeting tip to tip: a closed ring with a
+    spark held in it. The two arcs are drawn as separate strokes with a small
+    gap at each side rather than as one capsule — the seam is what says this is
+    two shapes joined, and at 16 pixels it survives as a hairline notch.
 
-    Both use currentColor so the mark takes the colour of whatever holds it. The
-    halo is the same colour at low opacity rather than a second hue, so it stays
-    a glow on a dark background and does not turn into a grey ring on a light one.
+    Everything is currentColor so the mark takes the colour of whatever holds
+    it. The asterisk is three crossing strokes rather than a glyph: a font
+    asterisk sits high on the line and is drawn for text, not for icons.
   -->
   <!--
-    As a favicon nothing sets `color`, and the default is black — which is
-    invisible in a dark tab strip. These two rules give the file its own theme;
-    where it is masked or inlined, `color` is inherited and they never apply.
+    As a favicon nothing sets `color`, and the default is black — invisible in a
+    dark tab strip. These two rules give the file its own theme; where it is
+    masked or inlined, `color` is inherited and they never apply.
   -->
   <style>
     svg { color: #4b3fa8; }
     @media (prefers-color-scheme: dark) { svg { color: #a996ff; } }
   </style>
 
-  <g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round">
-    <path d="M5 28V17a11 11 0 0 1 22 0v11"/>
+  <g fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+    <!-- The mouth: inverted U, open downwards. -->
+    <path d="M6 15.2V13a10 10 0 0 1 20 0v2.2"/>
+    <!-- The hollow: upright U, open upwards, meeting the first at the sides. -->
+    <path d="M6 16.8V19a10 10 0 0 0 20 0v-2.2"/>
+    <!-- The spark: three strokes through one point. -->
+    <g stroke-width="2" transform="translate(16 16)">
+      <path d="M0-4.2V4.2"/>
+      <path d="M-3.64-2.1L3.64 2.1"/>
+      <path d="M-3.64 2.1L3.64-2.1"/>
+    </g>
   </g>
-
-  <circle cx="16" cy="18.5" r="6" fill="currentColor" opacity=".16"/>
-  <circle cx="16" cy="18.5" r="3.2" fill="currentColor"/>
 </svg>
