@@ -219,7 +219,12 @@ def fetch_document(url: str) -> dict[str, str]:
                 f"That URL serves {content_type or 'an unknown type'}, which is not a text "
                 "document. Furna reads pages, markdown and plain text."
             )
-        raw = response.read(MAX_DOCUMENT_BYTES + 1)
+        try:
+            raw = response.read(MAX_DOCUMENT_BYTES + 1)
+        except (TimeoutError, urllib.error.URLError, OSError) as exc:
+            # The connection can succeed and then stall mid-body. Without this
+            # the reader gets a 500 and no idea which host was slow.
+            raise FetchError(f"The document stopped arriving partway through: {exc}.") from exc
         if len(raw) > MAX_DOCUMENT_BYTES:
             raise FetchError(
                 f"The document is larger than {MAX_DOCUMENT_BYTES // 1000}kB. "

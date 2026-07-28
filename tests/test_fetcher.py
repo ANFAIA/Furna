@@ -181,3 +181,15 @@ def test_empty_navigation_bullets_are_dropped():
     """Wikipedia arrives with several hundred before its first sentence."""
     text, _ = html_to_text("<ul><li><span></span></li><li>Real</li></ul>")
     assert text == "- Real"
+
+
+def test_a_body_that_stalls_midway_is_a_fetch_error(monkeypatch):
+    """The connection can succeed and then hang; a 500 tells the reader nothing."""
+
+    class Stalling(FakeResponse):
+        def read(self, size=None):
+            raise TimeoutError("The read operation timed out")
+
+    monkeypatch.setattr(fetcher, "_open", lambda url: (Stalling(b"", "text/plain"), url))
+    with pytest.raises(FetchError, match="stopped arriving"):
+        fetch_document("http://example.com/slow.txt")
