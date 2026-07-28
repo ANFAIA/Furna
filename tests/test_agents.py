@@ -930,3 +930,173 @@ def test_the_extractor_is_told_to_catch_acronyms_and_notation():
     lowered = EXTRACTOR_PROMPT.lower()
     assert "acronym" in lowered and "notation" in lowered
     assert "AR" in EXTRACTOR_PROMPT  # the worked example folds an acronym in
+
+
+# --------------------------------------------------------------------------- #
+# Upstream failures that mean "later", not "no"
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Error code: 404 - {'error': {'message': 'Provider returned error', 'code': 404}}",
+        "Upstream error from Nvidia: ResourceExhausted: Worker local total request limit reached",
+        "Error code: 429 - rate limit exceeded",
+        "The read operation timed out",
+    ],
+)
+def test_a_provider_having_a_bad_moment_is_retryable(message):
+    """All seen from the free tier in one afternoon; none is about the request."""
+    from app.agents import _transient
+
+    assert _transient(RuntimeError(message))
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "No endpoints found that can handle the requested parameters",
+        "model features structured outputs not support",
+        "invalid api key",
+    ],
+)
+def test_a_real_refusal_is_not_retried(message):
+    """Retrying an unservable request just repeats it three times."""
+    from app.agents import _transient
+
+    assert not _transient(RuntimeError(message))
+
+
+@pytest.mark.asyncio
+async def test_a_transient_failure_is_retried_then_succeeds(monkeypatch):
+    from app import agents
+
+    monkeypatch.setattr(agents, "RETRY_DELAY", 0.0)
+    calls = {"n": 0}
+
+    async def flaky():
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise RuntimeError("Provider returned error")
+        return "inventory"
+
+    assert await agents._retrying(flaky, "chunk 1/1") == "inventory"
+    assert calls["n"] == 3
+
+
+@pytest.mark.asyncio
+async def test_retries_give_up_and_report_the_last_failure(monkeypatch):
+    from app import agents
+
+    monkeypatch.setattr(agents, "RETRY_DELAY", 0.0)
+
+    async def always():
+        raise RuntimeError("Provider returned error")
+
+    with pytest.raises(RuntimeError, match="Provider returned error"):
+        await agents._retrying(always, "chunk 1/1", attempts=2)
+
+
+@pytest.mark.asyncio
+async def test_the_same_error_five_times_is_a_wall(monkeypatch):
+    """Five identical failures mean the provider is not going to change its mind."""
+    from app import agents
+
+    monkeypatch.setattr(agents, "RETRY_DELAY", 0.0)
+    calls = {"n": 0}
+
+    async def always():
+        calls["n"] += 1
+        raise RuntimeError("Provider returned error")
+
+    with pytest.raises(RuntimeError):
+        await agents._retrying(always, "chunk 1/1")
+    assert calls["n"] == agents.RETRY_SAME_ERROR
+
+
+@pytest.mark.asyncio
+async def test_different_failures_each_get_their_own_budget(monkeypatch):
+    """A provider cycling through moods is still making progress."""
+    from app import agents
+
+    monkeypatch.setattr(agents, "RETRY_DELAY", 0.0)
+    errors = ["Provider returned error", "rate limit", "timed out", "overloaded"]
+    calls = {"n": 0}
+
+    async def varied():
+        calls["n"] += 1
+        if calls["n"] <= len(errors):
+            raise RuntimeError(errors[calls["n"] - 1])
+        return "inventory"
+
+    assert await agents._retrying(varied, "chunk 1/1") == "inventory"
+
+
+def test_ids_and_counters_do_not_make_two_failures_different():
+    """`(44/32)` in a rate-limit message must not reset the budget every try."""
+    from app.agents import _signature
+
+    first = RuntimeError("Worker local total request limit reached (44/32)")
+    second = RuntimeError("Worker local total request limit reached (45/32)")
+    assert _signature(first) == _signature(second)
+
+
+# --------------------------------------------------------------------------- #
+# Names a pattern can find and a small model walks past
+# --------------------------------------------------------------------------- #
+
+
+def test_benchmark_names_and_acronyms_are_found_by_shape():
+    """The exact ones seen missing from a live run."""
+    from app.agents import candidate_terms
+
+    section = (
+        "We evaluate on LAMBADA, HellaSwag, PIQA and ARC-easy. Attention "
+        "residuals (AR) stay in FP32 for `Qwen1.5-0.5B`, and perplexity on "
+        "wikitext-2 drops by α over 300M tokens."
+    )
+    found = candidate_terms(section)
+    for term in ["LAMBADA", "HellaSwag", "PIQA", "ARC-easy", "AR", "FP32", "α", "300M"]:
+        assert term in found, term
+
+
+def test_candidates_keep_the_spelling_of_the_text():
+    from app.agents import candidate_terms
+
+    assert "wikitext-2" in candidate_terms("perplexity on wikitext-2 is reported")
+
+
+def test_candidates_are_in_reading_order_and_deduplicated():
+    from app.agents import candidate_terms
+
+    assert candidate_terms("PIQA then ARC then PIQA again") == ["PIQA", "ARC"]
+
+
+def test_bare_prose_capitals_are_not_candidates():
+    from app.agents import candidate_terms
+
+    assert candidate_terms("I think a TODO is fine. OK?") == []
+
+
+def test_the_candidate_list_is_bounded():
+    from app.agents import candidate_terms, MAX_CANDIDATES
+
+    section = " ".join(f"BENCH{i}" for i in range(200))
+    assert len(candidate_terms(section)) == MAX_CANDIDATES
+
+
+def test_the_request_carries_the_candidates_and_the_section():
+    from app.agents import extraction_request
+
+    request = extraction_request("We evaluate on LAMBADA and PIQA.")
+    assert "<candidates>" in request and "LAMBADA" in request
+    assert "We evaluate on LAMBADA and PIQA." in request
+
+
+def test_a_section_with_no_findable_names_gets_no_empty_block():
+    """An empty checklist would read as 'there is nothing here'."""
+    from app.agents import extraction_request
+
+    request = extraction_request("this section is entirely ordinary prose.")
+    assert "<candidates>" not in request

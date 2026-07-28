@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 from typing import Any, AsyncIterator
 
@@ -28,6 +29,8 @@ from app.config import (
     uses_subagents,
 )
 from app.schemas import VERBOSITY_BUDGET, Entity, EntityExtraction, Expansion
+
+log = logging.getLogger(__name__)
 
 
 EXTRACTOR_PROMPT = """\
@@ -211,6 +214,76 @@ _SCHEMA_REFUSALS = (
 def _schema_unservable(exc: Exception) -> bool:
     text = str(exc).lower()
     return any(phrase in text for phrase in _SCHEMA_REFUSALS)
+
+
+#: Upstream failures that say nothing about the request, only about the moment.
+#:
+#: The free tier produces these constantly under load — a bare
+#: `Provider returned error` with an empty body, or an outright
+#: `Worker local total request limit reached (44/32)`. Both mean "try again",
+#: and without retrying they cost the reader a section or a whole panel.
+_TRANSIENT = (
+    "provider returned error",
+    "resourceexhausted",
+    "request limit reached",
+    "rate limit",
+    "overloaded",
+    "temporarily",
+    "timeout",
+    "timed out",
+    "502",
+    "503",
+    "429",
+)
+
+#: How many times the SAME failure is tolerated before giving up on a call.
+#:
+#: Counting identical messages rather than attempts is the point: a provider
+#: cycling through different momentary failures is still making progress and
+#: deserves another go, while the same message five times running is a wall.
+RETRY_SAME_ERROR = int(os.getenv("UPSTREAM_RETRIES", "5"))
+RETRY_DELAY = 2.0
+#: Hard stop, so a provider inventing a new error each time cannot loop forever.
+RETRY_CEILING = RETRY_SAME_ERROR * 2
+
+
+def _transient(exc: Exception) -> bool:
+    text = str(exc).lower()
+    if _schema_unservable(exc):
+        return False  # a real refusal: retrying the same request repeats it
+    return any(phrase in text for phrase in _TRANSIENT)
+
+
+def _signature(exc: Exception) -> str:
+    """What makes two failures 'the same'. Ids and counters vary; the rest does not."""
+    import re
+
+    return re.sub(r"\d+", "#", str(exc))[:200]
+
+
+async def _retrying(call, label: str, attempts: int = RETRY_SAME_ERROR):
+    """Run `call`, retrying while the failure looks like the provider's mood.
+
+    Two seconds between tries, flat: the free endpoints report a *global* worker
+    limit, so backing off aggressively only hands the slot to another chunk of
+    the same run.
+    """
+    seen: dict[str, int] = {}
+    for total in range(1, RETRY_CEILING + 1):
+        try:
+            return await call()
+        except Exception as exc:
+            if not _transient(exc):
+                raise
+            signature = _signature(exc)
+            seen[signature] = seen.get(signature, 0) + 1
+            if seen[signature] >= attempts or total == RETRY_CEILING:
+                raise
+            log.warning(
+                "%s: %s — retrying in %.0fs (%d/%d of this error)",
+                label, exc, RETRY_DELAY, seen[signature], attempts,
+            )
+            await asyncio.sleep(RETRY_DELAY)
 
 
 class DirectExtractor:
@@ -412,26 +485,41 @@ class DirectExpander:
         async def generator():
             answer = ""
             inside_think = False
-            started = False
-            try:
-                async for chunk in self._tokens(payload):
-                    started = True
-                    yield "messages", (chunk, {})
-                    visible, _, inside_think = split_thinking(
-                        _text_of(getattr(chunk, "content", "")), inside_think
+
+            # A restart is only possible before a token has reached the reader:
+            # past that, replaying would print the panel twice.
+            seen: dict[str, int] = {}
+            for total in range(1, RETRY_CEILING + 1):
+                answer, inside_think, started = "", False, False
+                try:
+                    async for chunk in self._tokens(payload):
+                        started = True
+                        yield "messages", (chunk, {})
+                        visible, _, inside_think = split_thinking(
+                            _text_of(getattr(chunk, "content", "")), inside_think
+                        )
+                        answer += visible
+                    break
+                except Exception as exc:
+                    if started:
+                        raise
+                    if _schema_unservable(exc):
+                        if not self._downgrade():
+                            raise
+                        continue  # a different request now; no point waiting
+                    signature = _signature(exc)
+                    seen[signature] = seen.get(signature, 0) + 1
+                    if (
+                        not _transient(exc)
+                        or seen[signature] >= RETRY_SAME_ERROR
+                        or total == RETRY_CEILING
+                    ):
+                        raise
+                    log.warning(
+                        "expansion: %s — retrying in %.0fs (%d/%d of this error)",
+                        exc, RETRY_DELAY, seen[signature], RETRY_SAME_ERROR,
                     )
-                    answer += visible
-            except Exception as exc:
-                # Only worth retrying before anything reached the reader: past
-                # that, restarting would replay the panel from the top.
-                if started or not (_schema_unservable(exc) and self._downgrade()):
-                    raise
-                async for chunk in self._tokens(payload):
-                    yield "messages", (chunk, {})
-                    visible, _, inside_think = split_thinking(
-                        _text_of(getattr(chunk, "content", "")), inside_think
-                    )
-                    answer += visible
+                    await asyncio.sleep(RETRY_DELAY)
 
             try:
                 data = json.loads(json_object_in(answer))
@@ -483,6 +571,48 @@ def build_expander_agent():
 # Invocation helpers
 # --------------------------------------------------------------------------- #
 
+#: Shapes that are almost always a name, and that a small model reads straight
+#: past. Finding them is a job for a regular expression, not for inference —
+#: `LAMBADA`, `HellaSwag`, `PIQA`, `ARC-easy` and `AR` are trivially findable by
+#: shape and were routinely missing from the model's own list.
+_CANDIDATE_PATTERNS = (
+    r"`[^`\n]{1,40}`",  # code spans: notation, flags, identifiers
+    # CamelCase needs a lowercase run, or it swallows `ARC` out of `ARC-easy`
+    # before the acronym pattern below gets to keep the suffix.
+    r"\b[A-Z][a-z]+[A-Z][A-Za-z\d]*\b",  # HellaSwag, BitNet, WikiText
+    r"\b[A-Z][A-Z\d]{1,9}(?:[-–][A-Za-z\d]+)*\b",  # LAMBADA, PIQA, AR, ARC-easy, FP32
+    r"\b[a-zA-Z]+[-–]\d+(?:\.\d+)?[a-zA-Z]*\b",  # wikitext-2, gpt-4
+    r"\b\d+(?:\.\d+)?[BMK]\b",  # 0.5B, 1.8B, 300M
+    r"[α-ωΑ-Ω]",  # notation
+)
+
+#: Enough to cover a section; more would crowd out the section itself.
+MAX_CANDIDATES = 40
+
+#: Shapes the patterns catch that are never worth explaining.
+_CANDIDATE_STOPWORDS = frozenset({"I", "A", "OK", "TODO", "NOTE", "TL", "DR", "AM", "PM"})
+
+
+def candidate_terms(section: str) -> list[str]:
+    """Names findable by shape alone, in the order the section uses them.
+
+    This does not decide what an entity is — the model still does that, and
+    still writes the gloss. It only makes sure the model is looking at the
+    benchmark names and acronyms instead of having to notice them itself.
+    """
+    import re
+
+    found: dict[str, None] = {}
+    for match in re.finditer("|".join(_CANDIDATE_PATTERNS), section):
+        term = match.group(0).strip("`").strip()
+        if not term or term in _CANDIDATE_STOPWORDS or len(term) > 40:
+            continue
+        found.setdefault(term, None)
+        if len(found) >= MAX_CANDIDATES:
+            break
+    return list(found)
+
+
 _EXTRACT_TEMPLATE = """\
 List the entities in the section below. Go through it in order and copy each
 name, acronym, term and notation exactly as it is written here.
@@ -490,6 +620,18 @@ name, acronym, term and notation exactly as it is written here.
 <section>
 {document}
 </section>
+{candidates}"""
+
+_CANDIDATES_BLOCK = """
+These strings were found in the section by pattern, so they are spelled exactly
+as the text spells them. Most are names worth explaining — benchmarks, models,
+acronyms, notation. Include each one as an entity or as a `surface_form` of one,
+unless it is genuinely ordinary prose. Do not stop here: the section also
+contains multi-word terms no pattern can find.
+
+<candidates>
+{terms}
+</candidates>
 """
 
 _EXPAND_TEMPLATE = """\
@@ -672,9 +814,16 @@ def merge_extractions(parts: list[EntityExtraction]) -> EntityExtraction:
     )
 
 
+def extraction_request(section: str) -> str:
+    """The section, plus the names a pattern already found in it."""
+    terms = candidate_terms(section)
+    block = _CANDIDATES_BLOCK.format(terms="\n".join(terms)) if terms else ""
+    return _EXTRACT_TEMPLATE.format(document=section, candidates=block)
+
+
 async def _extract_one(agent, text: str) -> EntityExtraction | None:
     result = await agent.ainvoke(
-        {"messages": [{"role": "user", "content": _EXTRACT_TEMPLATE.format(document=text)}]}
+        {"messages": [{"role": "user", "content": extraction_request(text)}]}
     )
     extraction = result.get("structured_response")
     return extraction if isinstance(extraction, EntityExtraction) else None
@@ -701,10 +850,18 @@ async def extract_entities_stream(agent, document: str) -> AsyncIterator[dict]:
     async def run(index: int, chunk: str) -> tuple[int, EntityExtraction | str]:
         async with limit:
             try:
-                extraction = await _extract_one(agent, chunk)
+                extraction = await _retrying(
+                    lambda: _extract_one(agent, chunk), f"chunk {index + 1}/{len(chunks)}"
+                )
             except Exception as exc:  # one bad chunk must not sink the rest
+                # Counted for the reader, logged for whoever has to fix it: a
+                # run that quietly drops half a document is worth a line.
+                log.warning("extraction chunk %d/%d failed: %s", index + 1, len(chunks), exc)
                 return index, str(exc)
-            return index, extraction if extraction is not None else "no structured response"
+            if extraction is None:
+                log.warning("extraction chunk %d/%d returned no structured response", index + 1, len(chunks))
+                return index, "no structured response"
+            return index, extraction
 
     # Chunks are independent, so serialising them would multiply the wait by
     # their number for no reason.
