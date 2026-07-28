@@ -766,3 +766,42 @@ async def test_prompted_mode_reads_a_fenced_answer():
         )
     ]
     assert events[-1][1].title == EXPANSION.title
+
+
+@pytest.mark.asyncio
+async def test_each_chunk_is_yielded_as_it_finishes():
+    """The reader gets the first section's entities without waiting for the last."""
+    from app.agents import extract_entities_stream
+
+    agent = ScriptedExtractor([
+        EntityExtraction(topic="Recovery", entities=[make_entity("qat", ["QAT"])]),
+        EntityExtraction(entities=[make_entity("bitnet", ["BitNet"])]),
+    ])
+    document = "\n\n".join("## H%d\n\n%s" % (i, "word " * 500) for i in range(2))
+
+    steps = [step async for step in extract_entities_stream(agent, document)]
+    chunks = [s for s in steps if "extraction" not in s]
+    assert chunks and chunks[0]["entities"]  # something usable before the end
+    assert [s["done"] for s in chunks] == sorted(s["done"] for s in chunks)
+    assert steps[-1]["extraction"].topic == "Recovery"
+    assert {e.id for chunk in chunks for e in chunk["entities"]} == {"qat", "bitnet"}
+
+
+@pytest.mark.asyncio
+async def test_an_entity_two_chunks_share_is_only_announced_once():
+    """The viewer appends what it is sent, so a repeat would mark the text twice."""
+    from app.agents import extract_entities_stream
+
+    agent = ScriptedExtractor([
+        EntityExtraction(entities=[make_entity("qat", ["QAT"])]),
+        EntityExtraction(entities=[make_entity("qat", ["quantization-aware training"])]),
+    ])
+    document = "\n\n".join("## H%d\n\n%s" % (i, "word " * 500) for i in range(2))
+
+    announced = [
+        entity
+        for step in [s async for s in extract_entities_stream(agent, document)]
+        if "extraction" not in step
+        for entity in step["entities"]
+    ]
+    assert [e.id for e in announced] == ["qat"]

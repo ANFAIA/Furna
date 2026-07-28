@@ -319,3 +319,45 @@ def test_fetching_does_not_require_a_configured_model(client, monkeypatch):
         lambda url: {"document": "Hi.", "url": url, "title": "", "content_type": "text/plain"},
     )
     assert client.get("/api/fetch", params={"url": "http://example.com/d"}).status_code == 200
+
+
+def test_analyze_stream_sends_chunks_before_the_result(client, monkeypatch):
+    """The sidebar fills while the rest of the document is still being read."""
+
+    async def fake_stream(_agent, _document):
+        yield {"done": 1, "total": 2, "topic": "QAT", "entities": [EXTRACTION.entities[0]]}
+        yield {"done": 2, "total": 2, "extraction": EXTRACTION}
+
+    monkeypatch.setattr(server, "extract_entities_stream", fake_stream)
+    events = parse_sse(client.post("/api/analyze/stream", json={"document": DOC}).text)
+
+    assert [name for name, _ in events] == ["chunk", "result"]
+    assert events[0][1]["entities"][0]["id"] == "qat"
+    assert events[0][1]["done"] == 1
+    assert {e["id"] for e in events[1][1]["entities"]} == {"qat", "wikitext-2"}
+
+
+def test_a_streamed_inventory_is_cached_whole(client, monkeypatch):
+    """Only the merge is complete, so only the merge is worth keeping."""
+
+    async def fake_stream(_agent, _document):
+        yield {"done": 1, "total": 1, "topic": "", "entities": [EXTRACTION.entities[0]]}
+        yield {"done": 1, "total": 1, "extraction": EXTRACTION}
+
+    monkeypatch.setattr(server, "extract_entities_stream", fake_stream)
+    client.post("/api/analyze/stream", json={"document": DOC})
+
+    events = parse_sse(client.post("/api/analyze/stream", json={"document": DOC}).text)
+    assert [name for name, _ in events] == ["result"]  # nothing left to stream
+    assert events[0][1]["cached"] is True
+
+
+def test_a_failure_mid_stream_reaches_the_reader(client, monkeypatch):
+    async def fake_stream(_agent, _document):
+        yield {"done": 1, "total": 2, "topic": "", "entities": []}
+        raise RuntimeError("no structured output")
+
+    monkeypatch.setattr(server, "extract_entities_stream", fake_stream)
+    events = parse_sse(client.post("/api/analyze/stream", json={"document": DOC}).text)
+    assert events[-1][0] == "error"
+    assert "no structured output" in events[-1][1]["message"]

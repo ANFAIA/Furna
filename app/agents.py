@@ -500,6 +500,26 @@ def split_for_extraction(document: str, limit: int = EXTRACTION_CHUNK_CHARS) -> 
     return chunks
 
 
+def keys_of(entity: Entity) -> list[str]:
+    """The identifiers this entity could be recognised by in another chunk.
+
+    Chunks are extracted independently, so the same term routinely comes
+    back with a different id — `qat-1bit` here, `1-bit-qat` there. Folding
+    on the canonical name as well catches that.
+
+    Surface forms are deliberately NOT folded on. They are shared by design:
+    `QAT` is a form of both `QAT` and `1-bit QAT`, and matching on them
+    chains unrelated entities together through whatever they have in common
+    until one entity has swallowed the document.
+    """
+    candidates = [entity.id, entity.canonical]
+    return [
+        c.strip().lower().replace("_", "-").replace(" ", "-")
+        for c in candidates
+        if c.strip()
+    ]
+
+
 def merge_extractions(parts: list[EntityExtraction]) -> EntityExtraction:
     """Fold per-chunk inventories into one, keyed by entity id.
 
@@ -509,25 +529,6 @@ def merge_extractions(parts: list[EntityExtraction]) -> EntityExtraction:
     """
     merged: dict[str, Entity] = {}
     aliases: dict[str, str] = {}  # id or name, normalised -> the key that won
-
-    def keys_of(entity: Entity) -> list[str]:
-        """The identifiers this entity could be recognised by in another chunk.
-
-        Chunks are extracted independently, so the same term routinely comes
-        back with a different id — `qat-1bit` here, `1-bit-qat` there. Folding
-        on the canonical name as well catches that.
-
-        Surface forms are deliberately NOT folded on. They are shared by design:
-        `QAT` is a form of both `QAT` and `1-bit QAT`, and matching on them
-        chains unrelated entities together through whatever they have in common
-        until one entity has swallowed the document.
-        """
-        candidates = [entity.id, entity.canonical]
-        return [
-            c.strip().lower().replace("_", "-").replace(" ", "-")
-            for c in candidates
-            if c.strip()
-        ]
 
     for part in parts:
         for entity in part.entities:
@@ -564,8 +565,17 @@ async def _extract_one(agent, text: str) -> EntityExtraction | None:
     return extraction if isinstance(extraction, EntityExtraction) else None
 
 
-async def extract_entities(agent, document: str) -> EntityExtraction:
-    """Extract the inventory, chunk by chunk, tolerating chunks that fail.
+async def extract_entities_stream(agent, document: str) -> AsyncIterator[dict]:
+    """Extract the inventory chunk by chunk, yielding each part as it lands.
+
+    A long document takes minutes to work through, and there is no reason for
+    the reader to watch an empty sidebar until the last chunk returns: the
+    entities of the first section are already usable, already markable, already
+    worth filtering. So each finished chunk is yielded on its own.
+
+    Chunks are ordered by position but they finish out of order, so what is
+    yielded is `entities`: the entities this chunk added that no earlier one
+    had. The caller can append them without re-rendering what is already there.
 
     One truncated chunk costs its own entities, not the whole document. Only a
     complete failure across every chunk is worth reporting to the reader.
@@ -573,27 +583,63 @@ async def extract_entities(agent, document: str) -> EntityExtraction:
     chunks = split_for_extraction(document)
     limit = asyncio.Semaphore(int(os.getenv("EXTRACTION_CONCURRENCY", "3")))
 
-    async def run(chunk: str) -> EntityExtraction | str:
+    async def run(index: int, chunk: str) -> tuple[int, EntityExtraction | str]:
         async with limit:
             try:
                 extraction = await _extract_one(agent, chunk)
             except Exception as exc:  # one bad chunk must not sink the rest
-                return str(exc)
-            return extraction if extraction is not None else "no structured response"
+                return index, str(exc)
+            return index, extraction if extraction is not None else "no structured response"
 
     # Chunks are independent, so serialising them would multiply the wait by
-    # their number for no reason. Order is preserved, which is what decides
-    # whose `topic` wins in the merge.
-    results = await asyncio.gather(*(run(chunk) for chunk in chunks))
-    parts = [r for r in results if isinstance(r, EntityExtraction)]
-    failures = [r for r in results if isinstance(r, str)]
+    # their number for no reason.
+    tasks = [asyncio.create_task(run(i, chunk)) for i, chunk in enumerate(chunks)]
+    parts: list[tuple[int, EntityExtraction]] = []
+    failures: list[str] = []
+    known: set[str] = set()
+
+    try:
+        for finished in asyncio.as_completed(tasks):
+            index, result = await finished
+            if isinstance(result, str):
+                failures.append(result)
+            else:
+                parts.append((index, result))
+                fresh = [e for e in result.entities if not known.intersection(keys_of(e))]
+                for entity in fresh:
+                    known.update(keys_of(entity))
+                yield {
+                    "done": len(parts) + len(failures),
+                    "total": len(chunks),
+                    "topic": result.topic,
+                    "entities": fresh,
+                }
+    finally:
+        # A disconnected reader must not leave chunks running against the model.
+        for task in tasks:
+            task.cancel()
 
     if not parts:
         raise RuntimeError(
             "The model returned no usable inventory for any part of the document. "
             f"Last problem: {failures[-1] if failures else 'unknown'}"
         )
-    return merge_extractions(parts)
+
+    # Re-merge in document order: which chunk's `topic` and `kind` win is decided
+    # by position in the text, not by which model call happened to return first.
+    parts.sort(key=lambda pair: pair[0])
+    yield {"done": len(chunks), "total": len(chunks), "extraction": merge_extractions(
+        [part for _, part in parts]
+    )}
+
+
+async def extract_entities(agent, document: str) -> EntityExtraction:
+    """The whole inventory, for callers with nothing to show in the meantime."""
+    final = None
+    async for step in extract_entities_stream(agent, document):
+        final = step.get("extraction") or final
+    assert final is not None  # the stream raises rather than ending empty
+    return final
 
 
 _STREAMED_FIELDS = ("title", "one_liner", "body_markdown")

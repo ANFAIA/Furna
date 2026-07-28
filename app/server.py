@@ -20,6 +20,7 @@ from app.agents import (
     build_extractor_agent,
     expand_entity_stream,
     extract_entities,
+    extract_entities_stream,
 )
 from app import config
 from app.cache import ENTITIES_KEY, cache, doc_hash
@@ -178,6 +179,66 @@ async def analyze(request: AnalyzeRequest) -> dict[str, object]:
         "expanded_ids": _expanded_ids(doc, writer),
         **payload,
     }
+
+
+@app.post("/api/analyze/stream")
+async def analyze_stream(request: AnalyzeRequest) -> StreamingResponse:
+    """The same inventory, but each chunk of it is sent as soon as it is ready.
+
+    A long document takes minutes to work through, and the entities of its first
+    section are usable long before the last one returns. This emits a `chunk`
+    event per finished part so the sidebar fills and the text gets marked while
+    the rest is still being read, then one `result` with the merged inventory —
+    which is also what gets cached, since only the merge is complete.
+    """
+    _require_models()
+    doc = doc_hash(request.document)
+    reader = config.resolve("extractor").label
+    writer = config.resolve("expander").label
+
+    async def stream() -> AsyncIterator[str]:
+        cached = cache.get(doc, reader, ENTITIES_KEY) if not request.refresh else None
+        if cached:
+            # Nothing to stream: the whole inventory is already known.
+            yield _sse(
+                "result",
+                {"doc_hash": doc, "cached": True, "expanded_ids": _expanded_ids(doc, writer), **cached},
+            )
+            return
+
+        try:
+            async for step in extract_entities_stream(extractor(), request.document):
+                extraction = step.get("extraction")
+                if extraction is None:
+                    yield _sse(
+                        "chunk",
+                        {
+                            "done": step["done"],
+                            "total": step["total"],
+                            "topic": step["topic"],
+                            "entities": [e.model_dump() for e in step["entities"]],
+                        },
+                    )
+                    continue
+                payload = extraction.model_dump()
+                cache.put(doc, reader, ENTITIES_KEY, payload)
+                yield _sse(
+                    "result",
+                    {
+                        "doc_hash": doc,
+                        "cached": False,
+                        "expanded_ids": _expanded_ids(doc, writer),
+                        **payload,
+                    },
+                )
+        except Exception as exc:  # surfaced to the UI instead of a blank page
+            yield _sse("error", {"message": f"Extractor failed: {exc}"})
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
 
 
 def _expanded_ids(doc: str, writer: str) -> list[str]:

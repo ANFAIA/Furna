@@ -637,9 +637,16 @@ async function* readSse(response) {
   }
 }
 
-async function analyze(document_, { refresh = false } = {}) {
+/** Stream the inventory, calling `onChunk` with each section's entities.
+ *
+ * The document is read in chunks and they finish out of order, so the sidebar
+ * can fill and the text can be marked while the rest is still being read. Only
+ * the final `result` is the complete, merged inventory — the chunks are the
+ * same entities seen early, not a different set.
+ */
+async function analyze(document_, { refresh = false, onChunk } = {}) {
   setStatus("analyzing entities…", true);
-  const response = await fetch("/api/analyze", {
+  const response = await fetch("/api/analyze/stream", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ document: document_, refresh }),
@@ -648,7 +655,15 @@ async function analyze(document_, { refresh = false } = {}) {
     const detail = await response.json().catch(() => ({}));
     throw new Error(detail.detail || `HTTP ${response.status}`);
   }
-  return response.json();
+
+  let result = null;
+  for await (const event of readSse(response)) {
+    if (event.type === "error") throw new Error(event.data.message);
+    else if (event.type === "chunk") onChunk?.(event.data);
+    else if (event.type === "result") result = event.data;
+  }
+  if (!result) throw new Error("The server returned no inventory.");
+  return result;
 }
 
 // --------------------------------------------------------------------------- //
@@ -759,10 +774,40 @@ async function loadDocument(text, { refresh = false, source = null } = {}) {
 
   const reader = el("reader");
   reader.innerHTML = renderMarkdown(text);
+  el("topic").textContent = ""; // the previous document's, until a chunk names this one
+  renderSidebar();
+
+  let marked = 0;
+
+  // Each finished chunk is usable on its own: mark it, list it, let the reader
+  // start. Waiting for the last chunk would leave the sidebar empty for minutes
+  // on a long document, with the first section's entities already known.
+  const absorb = (entities) => {
+    const fresh = entities.filter((entity) => !state.entities.has(entity.id));
+    if (!fresh.length) return 0;
+    for (const entity of fresh) state.entities.set(entity.id, entity);
+    // Marks are handled by delegation (see boot), so the ones a panel creates in
+    // its own prose behave exactly like the ones in the document. Already-marked
+    // spans are skipped by the walker, so this only marks what is still bare.
+    const added = markEntities(reader, fresh);
+    renderSidebar();
+    return added;
+  };
 
   let payload;
   try {
-    payload = await analyze(text, { refresh });
+    payload = await analyze(text, {
+      refresh,
+      onChunk: (chunk) => {
+        marked += absorb(chunk.entities);
+        if (chunk.topic && !el("topic").textContent) el("topic").textContent = chunk.topic;
+        setStatus(
+          `reading ${chunk.done}/${chunk.total} · ${state.entities.size} entities so far`,
+          true,
+        );
+        syncActiveMarks();
+      },
+    });
   } catch (error) {
     setStatus(`error: ${error.message}`);
     return;
@@ -770,11 +815,9 @@ async function loadDocument(text, { refresh = false, source = null } = {}) {
 
   state.docHash = payload.doc_hash;
   state.meta = payload;
-  for (const entity of payload.entities) state.entities.set(entity.id, entity);
-
-  // Marks are handled by delegation (see boot), so the ones a panel creates in
-  // its own prose behave exactly like the ones in the document.
-  const marked = markEntities(reader, payload.entities);
+  // The merge can rename an id that two chunks disagreed on, so the final
+  // inventory replaces what the chunks left rather than adding to it.
+  marked += absorb(payload.entities);
 
   // The server may already hold expansions from an earlier session. Mark those
   // entities as known so the reader can see what is one instant click away; the

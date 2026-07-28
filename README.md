@@ -147,13 +147,22 @@ literal substrings the text uses to name the entity. Those forms are the crux of
 the system: the agent does not return offsets (it would invent them), it returns
 the exact strings and the viewer locates them itself in the already-rendered DOM.
 
-It works in chunks, ~2500 characters each, run concurrently
-(`EXTRACTION_CONCURRENCY`, default 3). Not for context — for the completion
-budget: a model asked for twenty entities at once spends its budget reasoning and
-truncates mid-JSON, and some models cannot be told to stop reasoning. A chunk
-that fails costs its own entities, not the document. The merge folds on `id` and
-`canonical` only — folding on surface forms chains unrelated entities together,
-since `QAT` is a form of both `QAT` and `1-bit QAT`.
+It works in chunks — split on headings first, then paragraph breaks, ~2500
+characters each — run concurrently (`EXTRACTION_CONCURRENCY`, default 3). Not for
+context: for the completion budget. A model asked for twenty entities at once
+spends it reasoning and truncates mid-JSON, and some models cannot be told to
+stop reasoning. A chunk that fails costs its own entities, not the document. The
+merge folds on `id` and `canonical` only — folding on surface forms chains
+unrelated entities together, since `QAT` is a form of both `QAT` and `1-bit QAT`.
+
+**Each chunk is sent as it lands.** `/api/analyze/stream` emits a `chunk` event
+per finished section, so the sidebar fills, the filter works and the text gets
+marked while the rest of the document is still being read — on a long text that
+is the difference between an empty page for minutes and a usable one in seconds.
+A chunk announces only the entities no earlier chunk had, so the viewer appends
+instead of re-rendering. The final `result` carries the merged inventory, and
+only that merge is cached: it is the only complete one, and which chunk's `topic`
+wins is decided by position in the text, not by which call returned first.
 
 **`entity-expander`** — orchestrator with three subagents, run per entity:
 
@@ -278,6 +287,7 @@ does not make every other panel verbose.
 | Method | Path | What it does |
 |---|---|---|
 | `POST` | `/api/analyze` | Entity inventory for the document |
+| `POST` | `/api/analyze/stream` | SSE: one `chunk` per finished section, then the merged `result` |
 | `POST` | `/api/expand` | SSE: `progress`, then `partial` per token batch, then one `result`. Takes `mode`, `verbosity` and the drill-down `path` |
 | `GET` | `/api/health` | Provider and model per role, and what is still unconfigured |
 | `DELETE` | `/api/cache/{doc_hash}` | Empties one document's cache |
