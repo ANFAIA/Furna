@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Furna">
+  <title>Furna</title>
+  <!--
+    Lines of text with a cave mouth carved out from below. A furna is the hollow
+    the sea cuts into a cliff, and the app cuts the same hollow into a page: the
+    mark is the hole, not the text around it.
+  -->
+  <defs>
+    <mask id="furna-cave">
+      <rect width="32" height="32" fill="#fff"/>
+      <path d="M10 30V19.5a6 6 0 0 1 12 0V30Z" fill="#000"/>
+    </mask>
+  </defs>
+
+  <g mask="url(#furna-cave)" fill="currentColor">
+    <rect x="5" y="5" width="22" height="3" rx="1.5"/>
+    <rect x="5" y="11" width="22" height="3" rx="1.5"/>
+    <rect x="5" y="17" width="22" height="3" rx="1.5"/>
+    <rect x="5" y="23" width="16" height="3" rx="1.5"/>
+  </g>
+
+  <path d="M10 30V19.5a6 6 0 0 1 12 0V30" fill="none" stroke="currentColor"
+        stroke-width="2" stroke-linecap="round" opacity=".45"/>
+</svg>
