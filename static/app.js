@@ -18,7 +18,16 @@ const state = {
 };
 
 const VERBOSITY_LABELS = { brief: "brief", normal: "normal", deep: "deep" };
-const NEXT_VERBOSITY = { brief: "normal", normal: "deep", deep: null };
+
+// Three sizes, shown as three buttons rather than one "more" step: going back
+// to the short answer is as common as asking for the long one, and both are
+// free once generated. The short label is what fits in a panel header; the
+// title says what it costs the reader in words.
+const LENGTHS = [
+  { level: "brief", label: "S", words: "60-90 words" },
+  { level: "normal", label: "M", words: "150-220 words" },
+  { level: "deep", label: "L", words: "300-420 words" },
+];
 const MAX_DEPTH = 3;
 
 // Session cache is keyed by (entity, verbosity) exactly like the server's, so
@@ -172,7 +181,12 @@ function panelSkeleton(entity, depth = 0) {
         <span class="panel-kind">${entity.kind || "concept"}</span>
         <h4 class="panel-title">${entity.canonical}</h4>
         <span class="panel-badge" data-role="badge"></span>
-        <button class="panel-more" data-role="more" hidden></button>
+        <div class="panel-length" data-role="length" role="group" aria-label="Explanation length" hidden>
+          ${LENGTHS.map(
+            ({ level, label, words }) =>
+              `<button class="len" data-length="${level}" title="${VERBOSITY_LABELS[level]} · ${words}" aria-label="${VERBOSITY_LABELS[level]}, ${words}">${label}</button>`,
+          ).join("")}
+        </div>
         <button class="panel-close" title="Close (or click the mark again)">×</button>
       </header>
       <p class="thinking" data-role="thinking" hidden><span></span></p>
@@ -250,16 +264,28 @@ function renderExpansion(panel, expansion, cached, verbosity) {
     ${expansion.confidence === "low" ? `<p class="warn">The agent flagged low confidence on part of this. Verify it.</p>` : ""}
   `;
 
-  const next = NEXT_VERBOSITY[verbosity || state.verbosity];
-  const more = panel.querySelector('[data-role="more"]');
-  more.hidden = !next || Number(panel.dataset.depth) >= MAX_DEPTH;
-  if (next) {
-    more.textContent = `↓ ${VERBOSITY_LABELS[next]}`;
-    more.title = `Regenerate this panel with more detail (${VERBOSITY_LABELS[next]})`;
-    more.dataset.next = next;
-  }
-
+  renderLengths(panel, verbosity || state.verbosity);
   enrichPanel(panel);
+}
+
+/** Show which length this panel is at, and which of the others are already written.
+ *
+ * A level already in the session cache opens with no agent call and no wait,
+ * and that is worth showing before the click rather than after: it turns "is
+ * this worth the wait" into a visible answer.
+ */
+function renderLengths(panel, current) {
+  const group = panel.querySelector('[data-role="length"]');
+  if (!group) return;
+  group.hidden = false;
+  const entityId = panel.dataset.entityId;
+  for (const button of group.querySelectorAll(".len")) {
+    const level = button.dataset.length;
+    const ready = entityId && state.expansions.has(memoKey(entityId, level));
+    button.classList.toggle("is-on", level === current);
+    button.classList.toggle("is-ready", Boolean(ready) && level !== current);
+    button.setAttribute("aria-pressed", String(level === current));
+  }
 }
 
 /** Make a panel's own prose explorable: same marks, same selection, one level in. */
@@ -322,15 +348,25 @@ async function mountPanel({
 }) {
   const panel = panelSkeleton(header, depth);
   panel.onPanelClose = onClose;
+  panel.dataset.entityId = target.id; // so the length control can see what is cached
   anchor.after(panel);
   state.openPanels.set(key, panel);
   syncActiveMarks();
 
   requestAnimationFrame(() => panel.classList.remove("opening"));
   panel.querySelector(".panel-close").addEventListener("click", () => closePanel(key));
-  panel.querySelector('[data-role="more"]').addEventListener("click", (event) => {
+  // Lit before the answer arrives, not after: the reader pressed a button and
+  // should see which one, even while the agent is still writing.
+  renderLengths(panel, verbosity);
+  panel.querySelector('[data-role="length"]').addEventListener("click", (event) => {
+    const button = event.target.closest(".len");
+    if (!button || button.classList.contains("is-on")) return;
     event.stopPropagation();
-    deepen(key, { header, anchor, target, sentence, onClose, depth, path }, event.currentTarget.dataset.next);
+    rewriteAt(
+      key,
+      { header, anchor, target, sentence, onClose, depth, path },
+      button.dataset.length,
+    );
   });
   panel.addEventListener("click", (event) => {
     const jump = event.target.closest("[data-jump]");
@@ -397,8 +433,8 @@ function renderPanelError(panel, message, retry) {
   body.append(warn, again);
 }
 
-/** Regenerate an open panel one verbosity level up, in place. */
-async function deepen(key, options, verbosity) {
+/** Rewrite an open panel at another length, in place. Either direction. */
+async function rewriteAt(key, options, verbosity) {
   if (!verbosity) return;
   const open = state.openPanels.get(key);
   if (!open) return;
