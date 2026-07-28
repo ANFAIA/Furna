@@ -1,24 +1,28 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Furna">
   <title>Furna</title>
   <!--
-    Lines of text with a cave mouth carved out from below. A furna is the hollow
-    the sea cuts into a cliff, and the app cuts the same hollow into a page: the
-    mark is the hole, not the text around it.
-  -->
-  <defs>
-    <mask id="furna-cave">
-      <rect width="32" height="32" fill="#fff"/>
-      <path d="M10 30V19.5a6 6 0 0 1 12 0V30Z" fill="#000"/>
-    </mask>
-  </defs>
+    An inverted U — the mouth of the cave — with a light burning inside it.
+    Two strokes and a dot: at 16px the arch still reads as an arch and the dot
+    still reads as a light, which is the only test an icon has to pass.
 
-  <g mask="url(#furna-cave)" fill="currentColor">
-    <rect x="5" y="5" width="22" height="3" rx="1.5"/>
-    <rect x="5" y="11" width="22" height="3" rx="1.5"/>
-    <rect x="5" y="17" width="22" height="3" rx="1.5"/>
-    <rect x="5" y="23" width="16" height="3" rx="1.5"/>
+    Both use currentColor so the mark takes the colour of whatever holds it. The
+    halo is the same colour at low opacity rather than a second hue, so it stays
+    a glow on a dark background and does not turn into a grey ring on a light one.
+  -->
+  <!--
+    As a favicon nothing sets `color`, and the default is black — which is
+    invisible in a dark tab strip. These two rules give the file its own theme;
+    where it is masked or inlined, `color` is inherited and they never apply.
+  -->
+  <style>
+    svg { color: #4b3fa8; }
+    @media (prefers-color-scheme: dark) { svg { color: #a996ff; } }
+  </style>
+
+  <g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round">
+    <path d="M5 28V17a11 11 0 0 1 22 0v11"/>
   </g>
 
-  <path d="M10 30V19.5a6 6 0 0 1 12 0V30" fill="none" stroke="currentColor"
-        stroke-width="2" stroke-linecap="round" opacity=".45"/>
+  <circle cx="16" cy="18.5" r="6" fill="currentColor" opacity=".16"/>
+  <circle cx="16" cy="18.5" r="3.2" fill="currentColor"/>
 </svg>
