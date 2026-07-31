@@ -274,8 +274,17 @@ export function install(settings) {
   shimState.originalFetch = window.fetch.bind(window);
   window.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input.url;
-    const path = new URL(url, window.location.href).pathname + new URL(url, window.location.href).search;
-    if (!path.startsWith("/api/")) return shimState.originalFetch(input, init);
+    const parsed = new URL(url, window.location.href);
+    // Same-origin AND under /api/: OpenRouter's own endpoint is
+    // `https://openrouter.ai/api/v1/chat/completions` — its PATH also starts
+    // with /api/, so matching on path alone caught the engine's own outbound
+    // calls to the provider and answered them with a 404 from this shim.
+    // Real bug, found by loading the page: the very first extraction failed
+    // with "No such route: POST /api/v1/chat/completions".
+    if (parsed.origin !== window.location.origin || !parsed.pathname.startsWith("/api/")) {
+      return shimState.originalFetch(input, init);
+    }
+    const path = parsed.pathname + parsed.search;
     try {
       return await handleApiRequest(path, init);
     } catch (error) {

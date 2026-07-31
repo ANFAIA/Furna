@@ -109,3 +109,34 @@ test("document/{hash} 404s when nothing was ever analyzed", async () => {
   const response = await handleApiRequest("/api/document/0123456789abcdef", { method: "GET" });
   assert.equal(response.status, 404);
 });
+
+test("install() only intercepts same-origin /api/ requests, not a provider whose own path starts with /api/", async () => {
+  // Real bug, found by loading the page: OpenRouter's endpoint is
+  // https://openrouter.ai/api/v1/chat/completions — its PATH also starts with
+  // /api/, so matching on path alone caught the engine's own outbound calls
+  // and answered them with a 404 from this shim instead of letting them out.
+  const calls = [];
+  globalThis.window = {
+    location: { href: "http://localhost:8788/", origin: "http://localhost:8788" },
+    fetch: async (url) => {
+      calls.push(url);
+      return new Response("real network response");
+    },
+  };
+  const server = await startFakeServer([]);
+  try {
+    const { install } = await import("../../web/runtime/shim.js");
+    install(settingsFor(server));
+
+    const external = await window.fetch("https://openrouter.ai/api/v1/chat/completions", { method: "POST" });
+    assert.equal(await external.text(), "real network response");
+    assert.deepEqual(calls, ["https://openrouter.ai/api/v1/chat/completions"]);
+
+    const internal = await window.fetch("/api/nope");
+    assert.equal(internal.status, 404);
+    assert.deepEqual(calls, ["https://openrouter.ai/api/v1/chat/completions"]); // unchanged: served locally
+  } finally {
+    delete globalThis.window;
+    await server.close();
+  }
+});

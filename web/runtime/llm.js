@@ -19,22 +19,29 @@
  */
 export function openAiCompatible({ baseUrl, apiKey, model, extraHeaders = {} }) {
   async function* chat({ messages, maxTokens = 2000, signal } = {}) {
-    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
-      method: "POST",
-      signal,
-      headers: {
-        "Content-Type": "application/json",
-        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-        ...extraHeaders,
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        max_tokens: maxTokens,
-        temperature: 0,
-        stream: true,
-      }),
-    });
+    let response;
+    try {
+      response = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
+        method: "POST",
+        signal,
+        headers: {
+          "Content-Type": "application/json",
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+          ...extraHeaders,
+        },
+        body: JSON.stringify({ model, messages, max_tokens: maxTokens, temperature: 0, stream: true }),
+      });
+    } catch (error) {
+      // A network-level failure here is almost always CORS: this base URL did
+      // not send Access-Control-Allow-Origin for this page's origin, and the
+      // browser reports that as an undifferentiated "Failed to fetch" with no
+      // further detail. Found live: a local test server without the header
+      // failed exactly this way, indistinguishable from the server being down.
+      throw new Error(
+        `Could not reach ${baseUrl} (${error.message}). If this is a local server, it must send ` +
+          "Access-Control-Allow-Origin for this page — Ollama does by default, LM Studio has a setting for it.",
+      );
+    }
 
     if (!response.ok || !response.body) {
       const detail = await response.text().catch(() => "");

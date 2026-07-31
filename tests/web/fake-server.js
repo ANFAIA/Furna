@@ -17,6 +17,20 @@ export function startFakeServer(script) {
   const requests = [];
 
   const server = http.createServer((req, res) => {
+    if (req.method === "OPTIONS") {
+      // A cross-origin POST with a JSON body is a "non-simple" request, so the
+      // browser sends a CORS preflight before the real one. Real local servers
+      // handle this too; skipping it here would make the manual browser check
+      // pass for the wrong reason (no preflight ever sent) instead of the
+      // right one (preflight answered).
+      res.writeHead(204, {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      });
+      res.end();
+      return;
+    }
     let body = "";
     req.on("data", (d) => (body += d));
     req.on("end", () => {
@@ -25,7 +39,10 @@ export function startFakeServer(script) {
       call += 1;
 
       if (turn && "status" in turn) {
-        res.writeHead(turn.status, { "Content-Type": "application/json" });
+        res.writeHead(turn.status, {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+        });
         res.end(JSON.stringify({ error: { message: turn.message || "error" } }));
         return;
       }
@@ -34,6 +51,12 @@ export function startFakeServer(script) {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
         Connection: "keep-alive",
+        // A page served on one port and this server on another are different
+        // origins, so a browser enforces CORS even for localhost. Real local
+        // servers need this too — Ollama sends it by default; LM Studio has a
+        // setting for it — so the "Custom URL" preset in Settings only works
+        // against a server configured the same way this one is.
+        "Access-Control-Allow-Origin": "*",
       });
       for (const chunk of turn || []) {
         const delta = {};
