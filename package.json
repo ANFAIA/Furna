@@ -1,0 +1,22 @@
+{
+  "name": "furna-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser-only fork of Furna: agents, cache and viewer running entirely client-side.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/web/*.test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ANFAIA/Furna.git"
+  },
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/ANFAIA/Furna/issues"
+  },
+  "homepage": "https://github.com/ANFAIA/Furna#readme",
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.5"
+  }
+}

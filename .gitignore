@@ -11,3 +11,4 @@ wheels/
 
 .cache/
 .env
+node_modules
