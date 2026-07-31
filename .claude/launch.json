@@ -13,6 +13,13 @@
       ],
       "port": 8787,
       "autoPort": false
+    },
+    {
+      "name": "furna-web",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8788", "--directory", "web"],
+      "port": 8788,
+      "autoPort": false
     }
   ]
 }

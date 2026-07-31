@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Furna">
+  <title>Furna</title>
+  <!--
+    An inverted U — the mouth of the cave — with a spark burning inside it. Two
+    marks: at 16px the arch still reads as an arch and the asterisk still reads
+    as a spark, which is the only test an icon has to pass.
+
+    Everything is currentColor so the mark takes the colour of whatever holds
+    it. The asterisk is three crossing strokes rather than a glyph: a font
+    asterisk sits high on the line and is drawn for text, not for icons.
+  -->
+  <!--
+    As a favicon nothing sets `color`, and the default is black — invisible in a
+    dark tab strip. These two rules give the file its own theme; where it is
+    masked or inlined, `color` is inherited and they never apply.
+  -->
+  <style>
+    svg { color: #4b3fa8; }
+    @media (prefers-color-scheme: dark) { svg { color: #a996ff; } }
+  </style>
+
+  <g fill="none" stroke="currentColor" stroke-linecap="round">
+    <path d="M5 28V17a11 11 0 0 1 22 0v11" stroke-width="2.6"/>
+    <g stroke-width="2.1" transform="translate(16 18.5)">
+      <path d="M0-4.4V4.4"/>
+      <path d="M-3.81-2.2L3.81 2.2"/>
+      <path d="M-3.81 2.2L3.81-2.2"/>
+    </g>
+  </g>
+</svg>

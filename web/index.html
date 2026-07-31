@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Furna (browser)</title>
+    <link rel="icon" href="./furna.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./style.css" />
+    <link rel="stylesheet" href="./settings.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" role="img" aria-label="Furna"></span>
+        <span>Furna</span>
+      </div>
+      <div class="actions">
+        <button id="btn-compose" class="ghost">Paste text</button>
+        <button id="btn-collapse" class="ghost">Collapse all</button>
+
+        <div class="menu">
+          <button id="btn-settings" class="ghost" aria-haspopup="true" aria-expanded="false">
+            Settings
+          </button>
+          <!-- The provider/key/model section is inserted at the top of this
+               panel by web/runtime/bootstrap.js. Everything below the marker
+               comment is rendered by app.js exactly as in the server build. -->
+          <div id="settings" class="menu-panel" hidden role="menu">
+            <p class="menu-label">Explanation length</p>
+            <div class="verbosity" role="group">
+              <button class="ghost seg" data-verbosity="brief">brief</button>
+              <button class="ghost seg" data-verbosity="normal">normal</button>
+              <button class="ghost seg" data-verbosity="deep">deep</button>
+            </div>
+            <p class="menu-hint">
+              Each panel can be deepened on its own with its <code>↓</code> button.
+            </p>
+
+            <p class="menu-label">Document</p>
+            <button id="btn-sample" class="menu-item">Load the sample</button>
+            <button id="btn-refresh" class="menu-item">Re-analyze entities</button>
+
+            <p class="menu-label">Cache</p>
+            <p class="menu-hint" id="cache-state"></p>
+            <button id="btn-clear-cache" class="menu-item is-danger">
+              Clear this document's cache
+            </button>
+
+            <p class="menu-label">Models</p>
+            <div class="menu-roles" id="menu-models"></div>
+            <p class="menu-hint" id="menu-runtime"></p>
+            <p class="menu-warning" id="model-warning" hidden></p>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <section id="composer" class="composer">
+      <div class="composer-url">
+        <input
+          id="url"
+          type="url"
+          inputmode="url"
+          placeholder="…or a document URL (https://…)"
+        />
+        <button id="btn-fetch" class="ghost">Fetch</button>
+      </div>
+      <textarea id="input" placeholder="Paste your text here (markdown welcome)…"></textarea>
+      <button id="btn-load" class="primary">Analyze</button>
+    </section>
+
+    <main class="layout">
+      <aside class="sidebar">
+        <input id="filter" type="search" placeholder="Filter entities…" />
+        <p id="entity-count" class="hint"></p>
+        <ul id="entity-list" class="entity-list"></ul>
+        <section id="selection-box" class="selection-box" hidden></section>
+      </aside>
+
+      <div class="document">
+        <section id="topic-box" class="topic-box" hidden>
+          <span class="topic-label">topic</span>
+          <p id="topic" class="topic"></p>
+        </section>
+        <article id="reader" class="reader"></article>
+      </div>
+    </main>
+
+    <footer class="statusbar">
+      <span id="status">starting…</span>
+      <span id="models" class="models"></span>
+      <span class="legend">
+        <span class="legend-item"><span class="swatch"></span>entity</span>
+        <span class="legend-item"><span class="swatch swatch-known"></span>cached</span>
+        <span class="legend-item"><span class="swatch swatch-open"></span>open</span>
+      </span>
+    </footer>
+
+    <div id="ask-pill" class="ask-pill" role="button" tabindex="-1">
+      <kbd>Enter ⏎</kbd><span>explain selection</span>
+    </div>
+
+    <!-- Order matters and is load-bearing: both are non-async module scripts,
+         which the spec guarantees run in document order. bootstrap.js installs
+         the fetch shim BEFORE app.js's boot() fires its first request. -->
+    <script type="module" src="./runtime/bootstrap.js"></script>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

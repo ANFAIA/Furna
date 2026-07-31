@@ -1,0 +1,769 @@
+:root {
+  --bg: #faf9f7;
+  --bg-sunk: #f1efeb;
+  --panel: #ffffff;
+  --ink: #1d1b18;
+  --ink-soft: #5f5a52;
+  --ink-faint: #918a80;
+  --rule: #e3dfd8;
+  --accent: #7a5cff;
+  --accent-soft: #efeaff;
+  --warm: #c2703a;
+  --shadow: rgba(29, 27, 24, 0.09);
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+  --mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14140f;
+    --bg-sunk: #0e0e0b;
+    --panel: #1c1c17;
+    --ink: #eae6df;
+    --ink-soft: #a8a196;
+    --ink-faint: #7a7368;
+    --rule: #2d2c25;
+    --accent: #a996ff;
+    --accent-soft: #262042;
+    --warm: #e2a06a;
+    --shadow: rgba(0, 0, 0, 0.45);
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* ---------------------------------------------------------------- topbar -- */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.7rem 1.2rem;
+  border-bottom: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 620;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+/* The mark is painted, not embedded: an <img> cannot inherit `currentColor`, so
+   the file's own black stayed black and the logo vanished on a dark background.
+   As a mask, the shape comes from the file and the colour from the theme. */
+.brand-mark {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  display: inline-block;
+  background: var(--accent);
+  -webkit-mask: url("/static/furna.svg") center / contain no-repeat;
+  mask: url("/static/furna.svg") center / contain no-repeat;
+}
+
+/* The topic, in a box above the document it describes. Full sentence, wrapped:
+   in the toolbar it was truncated to whatever was left over between buttons. */
+.topic-box {
+  /* The reader's own text column is 46rem minus its 2rem side padding; the box
+     lines up with the prose, not with the article's outer edge. */
+  max-width: 42rem;
+  margin: 2.2rem auto -0.8rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: var(--bg-sunk);
+}
+
+.topic-label {
+  display: block;
+  margin-bottom: 0.2rem;
+  font-size: 0.62rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.topic {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+/* `margin-left: auto` rather than a spacer element: the topic used to hold this
+   gap open with `flex: 1`, and moving it into the document left the buttons
+   sitting against the brand. */
+.actions { display: flex; gap: 0.35rem; margin-left: auto; }
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border-radius: 7px;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.ghost {
+  background: transparent;
+  border: 1px solid var(--rule);
+  color: var(--ink-soft);
+  padding: 0.3rem 0.65rem;
+  font-size: 0.8rem;
+}
+.ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+.primary {
+  background: var(--accent);
+  border: none;
+  color: #fff;
+  padding: 0.5rem 1.1rem;
+  font-weight: 560;
+}
+.primary:hover { filter: brightness(1.08); }
+
+/* -------------------------------------------------------------- composer -- */
+
+.composer {
+  display: none;
+  gap: 0.6rem;
+  padding: 0.9rem 1.2rem;
+  border-bottom: 1px solid var(--rule);
+  background: var(--bg-sunk);
+}
+.composer.open { display: flex; flex-wrap: wrap; }
+
+/* The URL takes its own row: it is an alternative to pasting, not a field of it. */
+.composer-url {
+  flex: 1 1 100%;
+  display: flex;
+  gap: 0.5rem;
+}
+.composer-url input {
+  flex: 1;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--rule);
+  border-radius: 9px;
+  background: var(--panel);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+
+.composer textarea {
+  flex: 1;
+  min-height: 150px;
+  resize: vertical;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--rule);
+  border-radius: 9px;
+  background: var(--panel);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+/* ---------------------------------------------------------------- layout -- */
+
+/* The reader comes first in the source because it is the document; on a wide
+   screen the sidebar sits to its right, out of the way of the text's left edge
+   where the eye returns on every line. Below 880px it stacks above instead —
+   an index the reader scrolls past once beats one pushed off the bottom. */
+.layout {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 268px;
+  align-items: start;
+}
+
+.sidebar {
+  position: sticky;
+  top: 53px;
+  max-height: calc(100vh - 53px);
+  overflow-y: auto;
+  grid-column: 2;
+  grid-row: 1;
+  padding: 1rem 0.8rem 2rem;
+  border-left: 1px solid var(--rule);
+}
+
+.sidebar input[type="search"] {
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--rule);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 0.82rem;
+}
+
+.hint {
+  margin: 0.55rem 0.15rem 0.7rem;
+  font-size: 0.7rem;
+  color: var(--ink-faint);
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+}
+
+.entity-list { list-style: none; margin: 0; padding: 0; }
+
+.entity-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.32rem 0.45rem;
+  background: transparent;
+  border: none;
+  color: var(--ink-soft);
+  text-align: left;
+  font-size: 0.82rem;
+}
+.entity-row:hover { background: var(--accent-soft); color: var(--ink); }
+.entity-row.is-known { color: var(--ink); font-weight: 540; }
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  flex: none;
+}
+.dot[data-kind="method"], .dot[data-kind="concept"] { background: var(--accent); }
+.dot[data-kind="model"], .dot[data-kind="hardware"] { background: var(--warm); }
+.dot[data-kind="dataset"], .dot[data-kind="metric"] { background: #3f9e78; }
+
+.entity-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.entity-count { font-size: 0.68rem; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+
+/* ---------------------------------------------------------------- reader -- */
+
+.document {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+}
+
+.reader {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 2.2rem 2rem 6rem;
+  font-family: var(--serif);
+  font-size: 1.06rem;
+  line-height: 1.72;
+}
+
+.reader h1, .reader h2, .reader h3 {
+  font-family: var(--sans);
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  margin: 2.2rem 0 0.8rem;
+}
+.reader h1 { font-size: 1.7rem; }
+.reader h2 { font-size: 1.24rem; }
+.reader h3 { font-size: 1.05rem; }
+.reader p { margin: 0 0 1.05rem; }
+.reader hr { border: none; border-top: 1px solid var(--rule); margin: 2rem 0; }
+.reader blockquote {
+  margin: 1.2rem 0;
+  padding-left: 1rem;
+  border-left: 2px solid var(--rule);
+  color: var(--ink-soft);
+}
+.reader code {
+  font-family: var(--mono);
+  font-size: 0.85em;
+  background: var(--bg-sunk);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+.reader pre {
+  background: var(--bg-sunk);
+  padding: 0.9rem 1rem;
+  border-radius: 9px;
+  overflow-x: auto;
+  font-size: 0.85rem;
+}
+.reader pre code { background: none; padding: 0; }
+.reader table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.3rem 0;
+  font-family: var(--sans);
+  font-size: 0.88rem;
+}
+.reader th, .reader td { border-bottom: 1px solid var(--rule); padding: 0.5rem 0.6rem; text-align: left; }
+.reader th { color: var(--ink-faint); font-weight: 560; font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* ------------------------------------------------------------ the marks -- */
+
+mark.ent {
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 2px;
+  padding: 0 0.5px;
+  box-shadow: inset 0 -0.34em 0 color-mix(in srgb, var(--accent) 13%, transparent);
+  transition: box-shadow 0.16s ease, color 0.16s ease;
+}
+mark.ent:hover {
+  box-shadow: inset 0 -0.9em 0 color-mix(in srgb, var(--accent) 20%, transparent);
+}
+mark.ent.ent-known {
+  box-shadow: inset 0 -0.34em 0 color-mix(in srgb, var(--accent) 26%, transparent);
+}
+mark.ent.ent-active {
+  box-shadow: inset 0 -0.9em 0 color-mix(in srgb, var(--accent) 22%, transparent);
+}
+mark.ent.ent-open {
+  box-shadow: inset 0 -1.15em 0 color-mix(in srgb, var(--accent) 30%, transparent);
+  font-weight: 560;
+}
+mark.ent:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@keyframes flash { 0%, 100% { background: transparent; } 40% { background: var(--accent-soft); } }
+mark.ent.ent-flash { animation: flash 1.1s ease; }
+
+/* -------------------------------------------------- selection + the pill -- */
+
+::highlight(asked) {
+  background-color: color-mix(in srgb, var(--warm) 26%, transparent);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--warm) 60%, transparent);
+  text-underline-offset: 0.22em;
+}
+
+.reader ::selection { background: color-mix(in srgb, var(--accent) 26%, transparent); }
+
+.ask-pill {
+  position: fixed;
+  z-index: 60;
+  transform: translate(-50%, -100%) scale(0.94);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--rule);
+  background: var(--panel);
+  box-shadow: 0 6px 20px -8px var(--shadow);
+  font-family: var(--sans);
+  font-size: 0.76rem;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.13s ease, transform 0.13s ease;
+}
+.ask-pill.visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -100%) scale(1);
+}
+.ask-pill:hover { border-color: var(--accent); color: var(--ink); }
+.ask-pill kbd {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  line-height: 1;
+  padding: 0.16rem 0.3rem;
+  border-radius: 4px;
+  border: 1px solid var(--rule);
+  background: var(--bg-sunk);
+  color: var(--accent);
+}
+
+.selection-box { margin-top: 1.2rem; border-top: 1px solid var(--rule); padding-top: 0.6rem; }
+.dot[data-kind="selection"] { background: var(--warm); }
+
+/* --------------------------------------------------- the hole in the text -- */
+
+.panel {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.34s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.24s ease;
+  margin: 0.9rem 0 1.3rem;
+  font-family: var(--sans);
+  opacity: 1;
+}
+.panel.opening, .panel.closing { grid-template-rows: 0fr; opacity: 0; margin-block: 0; }
+
+.panel-inner {
+  overflow: hidden;
+  min-height: 0;
+  border-radius: 12px;
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+  background: var(--panel);
+  box-shadow: 0 1px 2px var(--shadow), 0 14px 34px -22px var(--shadow);
+}
+
+/* Each level in gets narrower and quieter, so the reader can feel the depth. */
+.panel[data-depth="1"] { margin-left: 0.6rem; }
+.panel[data-depth="2"] { margin-left: 1.2rem; }
+.panel[data-depth="3"] { margin-left: 1.8rem; }
+.panel[data-depth="1"] .panel-inner,
+.panel[data-depth="2"] .panel-inner,
+.panel[data-depth="3"] .panel-inner {
+  background: var(--bg-sunk);
+  box-shadow: none;
+}
+.panel[data-depth="1"] .panel-body { font-size: 0.86rem; }
+.panel[data-depth="2"] .panel-body,
+.panel[data-depth="3"] .panel-body { font-size: 0.83rem; }
+
+/* Three lengths as one segmented control: the reader can see where they are
+   and go either way, which a single "more" step could not do. */
+.panel-length {
+  display: inline-flex;
+  border: 1px solid var(--rule);
+  border-radius: 20px;
+  overflow: hidden;
+}
+
+.panel-length .len {
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--rule);
+  color: var(--ink-faint);
+  padding: 0.12rem 0.42rem;
+  font-size: 0.66rem;
+  font-weight: 600;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.panel-length .len:first-child { border-left: none; }
+.panel-length .len:hover { color: var(--accent); background: var(--accent-soft); }
+
+.panel-length .len.is-on {
+  color: var(--accent);
+  background: var(--accent-soft);
+  cursor: default;
+}
+
+/* Already written, so switching to it costs nothing and no wait: the dot says
+   so before the click rather than after. */
+.panel-length .len.is-ready::after {
+  content: "";
+  display: block;
+  width: 3px;
+  height: 3px;
+  margin: 1px auto 0;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.55;
+}
+
+.menu { position: relative; }
+
+.menu-panel {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  right: 0;
+  z-index: 40;
+  width: 17rem;
+  padding: 0.7rem 0.8rem 0.8rem;
+  border: 1px solid var(--rule);
+  border-radius: 11px;
+  background: var(--panel);
+  box-shadow: 0 2px 4px var(--shadow), 0 18px 40px -24px var(--shadow);
+}
+
+.menu-label {
+  margin: 0.85rem 0 0.35rem;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--ink-faint);
+}
+.menu-label:first-child { margin-top: 0; }
+
+.menu-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--ink-faint);
+  white-space: pre-line;
+}
+.menu-hint code { font-family: var(--mono); font-size: 0.9em; }
+
+.menu-roles { display: flex; flex-direction: column; gap: 0.3rem; margin-top: 0.35rem; }
+.menu-roles .role {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  line-height: 1.4;
+  color: var(--ink-soft);
+  word-break: break-all;
+}
+.menu-roles b {
+  font-family: var(--sans);
+  font-size: 0.62rem;
+  font-weight: 560;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.menu-roles i { font-style: normal; color: var(--ink-faint); }
+
+.menu-warning {
+  margin: 0.5rem 0 0;
+  padding: 0.45rem 0.55rem;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--warm) 14%, transparent);
+  color: var(--warm);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.35rem 0.5rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+}
+.menu-item[disabled] { opacity: 0.5; cursor: progress; }
+.menu-item:hover { background: var(--accent-soft); color: var(--ink); }
+.menu-item.is-danger:hover {
+  background: color-mix(in srgb, var(--warm) 16%, transparent);
+  color: var(--warm);
+}
+
+.verbosity { display: flex; }
+.verbosity .seg { border-radius: 0; margin-left: -1px; }
+.verbosity .seg:first-child { border-radius: 7px 0 0 7px; margin-left: 0; }
+.verbosity .seg:last-child { border-radius: 0 7px 7px 0; }
+.verbosity .seg.is-on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  z-index: 1;
+}
+
+.panel.is-selection .panel-inner { border-left-color: var(--warm); }
+.panel.is-selection .panel-head { background: color-mix(in srgb, var(--warm) 12%, transparent); }
+.panel.is-selection .panel-kind {
+  color: var(--warm);
+  border-color: color-mix(in srgb, var(--warm) 40%, transparent);
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.65rem 0.85rem;
+  border-bottom: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--accent-soft) 45%, transparent);
+}
+
+.panel-kind {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 20px;
+  padding: 0.1rem 0.45rem;
+}
+
+.panel-title { margin: 0; font-size: 0.95rem; letter-spacing: -0.01em; flex: 1; }
+
+.panel-badge {
+  font-size: 0.64rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.panel-badge.is-cache { color: #3f9e78; }
+.panel-badge.is-fresh { color: var(--warm); }
+.panel-badge.is-writing { color: var(--accent); }
+
+/* Trailing caret while the model is still emitting the panel. */
+.prose.streaming > *:last-child::after {
+  content: "";
+  display: inline-block;
+  width: 0.45em;
+  height: 1em;
+  margin-left: 0.12em;
+  vertical-align: -0.14em;
+  background: var(--accent);
+  border-radius: 1px;
+  animation: caret 1s steps(2, end) infinite;
+}
+@keyframes caret { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+
+.panel-close {
+  background: none;
+  border: none;
+  color: var(--ink-faint);
+  font-size: 1.15rem;
+  line-height: 1;
+  padding: 0 0.15rem;
+}
+.panel-close:hover { color: var(--ink); }
+
+/* The model's reasoning: one line, always the tail, never wrapping. It is a
+   side channel — visible enough to prove work is happening, quiet enough to
+   ignore. */
+.thinking {
+  margin: 0;
+  padding: 0.32rem 1rem;
+  border-bottom: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--bg-sunk) 60%, transparent);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  line-height: 1.5;
+  color: var(--ink-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  direction: rtl; /* keeps the newest text in view as it grows */
+  text-overflow: ellipsis;
+}
+.thinking > span { direction: ltr; unicode-bidi: embed; }
+.thinking::before {
+  content: "reasoning ";
+  color: var(--accent);
+  opacity: 0.75;
+}
+
+.panel-body { padding: 0.9rem 1rem 1rem; font-size: 0.9rem; line-height: 1.62; }
+.panel-body .one-liner {
+  margin: 0 0 0.8rem;
+  font-size: 0.98rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+.panel-body .prose p { margin: 0 0 0.7rem; }
+.panel-body .prose ul, .panel-body .prose ol { margin: 0 0 0.7rem; padding-left: 1.15rem; }
+.panel-body .prose li { margin-bottom: 0.28rem; }
+.panel-body code { font-family: var(--mono); font-size: 0.84em; background: var(--bg-sunk); padding: 0.08em 0.32em; border-radius: 4px; }
+
+.why {
+  margin-top: 0.9rem;
+  padding: 0.65rem 0.8rem;
+  background: var(--bg-sunk);
+  border-radius: 9px;
+}
+.why > span, .related > span {
+  display: block;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--ink-faint);
+  margin-bottom: 0.3rem;
+}
+.why p { margin: 0; font-size: 0.86rem; color: var(--ink-soft); }
+
+.related { margin-top: 0.9rem; }
+.chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.chip {
+  background: transparent;
+  border: 1px solid var(--rule);
+  color: var(--ink-soft);
+  border-radius: 20px;
+  padding: 0.18rem 0.6rem;
+  font-size: 0.75rem;
+}
+.chip:hover { border-color: var(--accent); color: var(--accent); }
+.chip-dead { opacity: 0.45; cursor: default; }
+.chip-dead:hover { border-color: var(--rule); color: var(--ink-soft); }
+
+.warn { color: var(--warm); font-size: 0.82rem; margin: 0.7rem 0 0; }
+
+/* Offered only where the server already gave up, so it should read as an
+   action the reader takes, not as a warning repeated. */
+.retry {
+  margin-top: 0.6rem;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.76rem;
+}
+
+/* --------------------------------------------------------------- loader -- */
+
+.loader { display: flex; align-items: center; gap: 0.4rem; color: var(--ink-faint); font-size: 0.84rem; }
+.spark {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.1s ease-in-out infinite;
+}
+.spark:nth-child(2) { animation-delay: 0.16s; }
+.spark:nth-child(3) { animation-delay: 0.32s; }
+.loader-text { margin-left: 0.35rem; }
+@keyframes pulse { 0%, 100% { opacity: 0.25; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1); } }
+
+/* ------------------------------------------------------------ statusbar -- */
+
+.statusbar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.45rem 1.2rem;
+  border-top: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(12px);
+  font-size: 0.74rem;
+  color: var(--ink-faint);
+}
+#status.busy::after { content: ""; animation: dots 1.4s steps(4, end) infinite; }
+@keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+
+.models {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  opacity: 0.75;
+}
+.models.has-problem { color: var(--warm); opacity: 1; }
+
+.legend { display: flex; gap: 0.8rem; }
+.legend-item { display: flex; align-items: center; gap: 0.3rem; }
+.swatch { width: 16px; height: 8px; border-radius: 2px; background: color-mix(in srgb, var(--accent) 13%, transparent); }
+.swatch-known { background: color-mix(in srgb, var(--accent) 26%, transparent); }
+.swatch-open { background: color-mix(in srgb, var(--accent) 40%, transparent); }
+
+@media (max-width: 880px) {
+  .layout { grid-template-columns: 1fr; }
+  .sidebar {
+    position: static;
+    grid-column: 1;
+    grid-row: 1; /* above the reader once stacked, as an index should be */
+    max-height: 240px;
+    border-left: none;
+    border-bottom: 1px solid var(--rule);
+  }
+  .document { grid-row: 2; }
+  .reader { padding: 1.4rem 1.1rem 4rem; }
+}

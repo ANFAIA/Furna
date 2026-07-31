@@ -1,0 +1,42 @@
+/* The provider/key/model section rendered by settings-ui.js, appended to the
+   existing menu styling in style.css (reused: .menu-label, .menu-hint,
+   .menu-warning, .ghost, .seg). Only what those do not already cover. */
+
+.provider-settings { border-bottom: 1px solid var(--rule); padding-bottom: 0.6rem; margin-bottom: 0.2rem; }
+
+.provider-tabs { display: flex; margin: 0.3rem 0 0.5rem; }
+.provider-tabs .seg { flex: 1; border-radius: 0; margin-left: -1px; font-size: 0.74rem; }
+.provider-tabs .seg:first-child { border-radius: 7px 0 0 7px; margin-left: 0; }
+.provider-tabs .seg:last-child { border-radius: 0 7px 7px 0; }
+.provider-tabs .seg.is-on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); z-index: 1; }
+.provider-tabs .seg[disabled] { opacity: 0.4; cursor: not-allowed; }
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin: 0.45rem 0;
+  font-size: 0.72rem;
+  color: var(--ink-faint);
+}
+/* `.field` and `[hidden]` are equal-specificity single selectors, so without
+   this the LATER rule always wins regardless of the attribute — the key field
+   stayed visible under the Custom URL preset because `.field { display: flex }`
+   happened to come after the browser's built-in `[hidden]` rule. */
+.field[hidden] { display: none; }
+.field input,
+.field select {
+  font: inherit;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--rule);
+  border-radius: 7px;
+  background: var(--bg-sunk);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+.field input:focus,
+.field select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
