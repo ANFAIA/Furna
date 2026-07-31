@@ -32,19 +32,49 @@ const DEFAULTS = {
   baseUrlPreset: "openrouter", // "openrouter" | "custom"
   customBaseUrl: "http://localhost:1234/v1",
   apiKey: "",
-  extractorModel: PRESET_MODELS.openrouter[0],
-  expanderModel: PRESET_MODELS.openrouter[1],
+  // Models are stored PER PRESET, not as one shared field. Sharing them was
+  // the bug: type a local server's model name under "Custom URL" (or a fake
+  // one while testing), switch to OpenRouter and paste a real key, and the
+  // field still showed the custom value — nothing about adding a key ever
+  // touched it, because there was only one field for both presets to fight
+  // over.
+  openrouterExtractorModel: PRESET_MODELS.openrouter[0],
+  openrouterExpanderModel: PRESET_MODELS.openrouter[1],
+  customExtractorModel: "",
+  customExpanderModel: "",
   webllmModel: PRESET_MODELS.webllm[0],
   extractionConcurrency: 3,
 };
 
 function load() {
+  let stored;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? { ...DEFAULTS, ...JSON.parse(raw) } : { ...DEFAULTS };
+    stored = raw ? JSON.parse(raw) : {};
   } catch {
-    return { ...DEFAULTS };
+    stored = {};
   }
+
+  // Migrate the old shared fields (pre-per-preset-models) into "custom" only.
+  // A value typed there is far more likely to be a local server's model name
+  // (or leftover test data) than a real OpenRouter slug — those look like
+  // "org/name:free" — so this is the split that actually undoes the bug
+  // instead of just carrying it forward under a new key.
+  if ("extractorModel" in stored || "expanderModel" in stored) {
+    stored.customExtractorModel ??= stored.extractorModel;
+    stored.customExpanderModel ??= stored.expanderModel;
+    delete stored.extractorModel;
+    delete stored.expanderModel;
+  }
+
+  // `1` is not a real port anything listens on; this exact value only ever
+  // got written by this codebase's own manual-verification script, which
+  // deliberately pointed at a closed port to check the CORS error message —
+  // and then persisted to whatever browser profile ran it. Reset it rather
+  // than carry a guaranteed-broken URL forward into someone else's session.
+  if (stored.customBaseUrl === "http://127.0.0.1:1") delete stored.customBaseUrl;
+
+  return { ...DEFAULTS, ...stored };
 }
 
 export class Settings {
@@ -84,11 +114,18 @@ export class Settings {
     return this.#state.baseUrlPreset === "openrouter" ? OPENROUTER_URL : this.#state.customBaseUrl;
   }
 
+  /** The model field name for the CURRENT preset — "openrouterExtractorModel"
+   *  vs "customExtractorModel" — so a value typed for one server never bleeds
+   *  into the other. */
+  modelKey(role) {
+    const part = role === "extractor" ? "ExtractorModel" : "ExpanderModel";
+    return `${this.#state.baseUrlPreset}${part}`;
+  }
+
   /** What `shim.js` needs to build a chat model and to render `/api/health`.
    *  `role` is "extractor" | "expander" | "subagent" — subagent is unused in
    *  the browser build (no orchestration; see PLAN.md) and mirrors expander. */
   roleConfig(role) {
-    const modelKey = role === "extractor" ? "extractorModel" : "expanderModel";
     if (this.#state.backend === "webllm") {
       return {
         backend: "webllm",
@@ -99,7 +136,7 @@ export class Settings {
         maxTokens: 2048,
       };
     }
-    const model = this.#state[modelKey];
+    const model = this.#state[this.modelKey(role)];
     return {
       backend: "openai-compatible",
       baseUrl: this.#baseUrl(),
@@ -125,6 +162,9 @@ export class Settings {
       }
       if (this.#state.baseUrlPreset === "custom" && !this.#state.customBaseUrl) {
         problems.push("Set a base URL for the custom OpenAI-compatible server.");
+      }
+      if (!this.#state[this.modelKey("extractor")] || !this.#state[this.modelKey("expander")]) {
+        problems.push("Set a model for the extractor and expander roles in Settings.");
       }
     } else if (this.#state.backend === "webllm" && !webGpuAvailable()) {
       problems.push("This browser has no WebGPU, which WebLLM requires. Switch to OpenRouter or a local server.");

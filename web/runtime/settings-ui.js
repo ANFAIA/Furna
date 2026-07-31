@@ -129,8 +129,11 @@ export function renderSettingsUi(settings, container) {
     if (document.activeElement !== els.key) els.key.value = settings.get("apiKey");
     els.key.placeholder = preset === "openrouter" ? "sk-or-…" : "";
     if (document.activeElement !== els.url) els.url.value = settings.get("customBaseUrl");
-    if (document.activeElement !== els.extractor) els.extractor.value = settings.get("extractorModel");
-    if (document.activeElement !== els.expander) els.expander.value = settings.get("expanderModel");
+    // Read/write the field for the CURRENT preset — not a single shared
+    // field — so a model typed for a local server never shows up, or gets
+    // silently reused, under OpenRouter after switching back.
+    if (document.activeElement !== els.extractor) els.extractor.value = settings.get(settings.modelKey("extractor"));
+    if (document.activeElement !== els.expander) els.expander.value = settings.get(settings.modelKey("expander"));
     els.webllmModel.value = settings.get("webllmModel");
 
     const problems = settings.problems();
@@ -147,8 +150,8 @@ export function renderSettingsUi(settings, container) {
   els.presetTabs.forEach((tab) => tab.addEventListener("click", () => settings.set("baseUrlPreset", tab.dataset.preset)));
   els.key.addEventListener("input", () => settings.set("apiKey", els.key.value.trim()));
   els.url.addEventListener("input", () => settings.set("customBaseUrl", els.url.value.trim()));
-  els.extractor.addEventListener("change", () => settings.set("extractorModel", els.extractor.value.trim()));
-  els.expander.addEventListener("change", () => settings.set("expanderModel", els.expander.value.trim()));
+  els.extractor.addEventListener("change", () => settings.set(settings.modelKey("extractor"), els.extractor.value.trim()));
+  els.expander.addEventListener("change", () => settings.set(settings.modelKey("expander"), els.expander.value.trim()));
   els.webllmModel.addEventListener("change", () => settings.set("webllmModel", els.webllmModel.value));
 
   settings.onChange(sync);
