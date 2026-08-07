@@ -24,7 +24,7 @@ export const PRESET_MODELS = {
     "google/gemma-4-26b-a4b-it:free",
     "openai/gpt-oss-20b:free",
   ],
-  webllm: ["Qwen2.5-1.5B-Instruct-q4f16_1-MLC", "Qwen2.5-0.5B-Instruct-q4f16_1-MLC", "Llama-3.2-1B-Instruct-q4f16_1-MLC"],
+  webllm: ["Qwen2.5-1.5B-Instruct-q4f16_1-MLC", "Qwen2.5-0.5B-Instruct-q4f16_1-MLC", "https://huggingface.co/LiquidAI/LFM2.5-230M"],
 };
 
 const DEFAULTS = {
