@@ -26,6 +26,7 @@ class FakePort {
   #onMessage = [];
   sent = [];
   disconnected = false;
+  #remoteGone = false;
   constructor(name) {
     this.name = name;
   }
@@ -33,10 +34,20 @@ class FakePort {
     addListener: (fn) => this.#onMessage.push(fn),
   };
   postMessage(message) {
+    // Real chrome.runtime.Port throws here once the OTHER end has
+    // disconnected — the exact case `closePanel` triggers deliberately by
+    // calling `entry.port.disconnect()` on a stream still in flight.
+    if (this.#remoteGone) throw new Error("Attempting to use a disconnected port object");
     this.sent.push(message);
   }
   disconnect() {
     this.disconnected = true;
+  }
+  /** Test-side: simulate the CONTENT SCRIPT's end of this port going away
+   *  mid-stream (e.g. the reader closed the panel), the way real Chrome would
+   *  make the background's `postMessage` start throwing. */
+  simulateRemoteDisconnect() {
+    this.#remoteGone = true;
   }
   /** Test-side: simulate the other end sending its first (only) message. */
   emit(message) {
@@ -170,6 +181,51 @@ test("analyze-page: a tab the content script cannot reach reports an error over 
   assert.equal(port.sent.length, 1);
   assert.equal(port.sent[0].kind, "error");
   assert.match(port.sent[0].data.message, /reload the tab/);
+});
+
+test("analyze-page: the reader closing the panel mid-stream does not crash the flow", async () => {
+  // A closed panel disconnects content.js's end of the "expand" port, but the
+  // same failure mode applies to "analyze-page" if the tab navigates away
+  // mid-stream — this exercises safePost() against exactly that shape:
+  // postMessage starts throwing partway through a multi-chunk stream.
+  const doc = Array.from({ length: 4 }, (_, i) => `## Section ${i}\n\n${"word ".repeat(700)}`).join("\n\n");
+  const entities = (id) => [{ id, canonical: id.toUpperCase(), kind: "method", gloss: "", surface_forms: [id.toUpperCase()] }];
+  const server = await startFakeServer([
+    [{ text: JSON.stringify({ topic: "T", entities: entities("a") }) }],
+    [{ text: JSON.stringify({ entities: entities("b") }) }],
+    [{ text: JSON.stringify({ entities: entities("c") }) }],
+    [{ text: JSON.stringify({ entities: entities("d") }) }],
+  ]);
+  try {
+    await loadBackground();
+    await call({ type: "settings.set", key: "baseUrlPreset", value: "custom" });
+    await call({ type: "settings.set", key: "customBaseUrl", value: server.baseUrl });
+    await call({ type: "settings.set", key: "customExtractorModel", value: "m" });
+    await call({ type: "settings.set", key: "customExpanderModel", value: "m" });
+
+    const port = new FakePort("analyze-page");
+    let disconnectedRemote = false;
+    tabsSendMessageImpl = async (tabId, message) => {
+      if (message.type === "extract-text") return { text: doc, url: "https://example.com/a", title: "A" };
+      if (message.type === "mark-entities" && !disconnectedRemote) {
+        disconnectedRemote = true;
+        port.simulateRemoteDisconnect(); // the panel closes right after the first batch marks
+      }
+      return null;
+    };
+
+    connectListener(port);
+    port.emit({ refresh: false });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    assert.ok(port.disconnected);
+    // Nothing after the disconnect made it into `sent` — safePost swallowed
+    // it — but nothing THREW either, which is the actual point: the process
+    // would otherwise have surfaced an unhandled rejection and failed this test.
+    assert.ok(port.sent.length <= 1);
+  } finally {
+    await server.close();
+  }
 });
 
 test("expand: streams progress then result over its own port", async () => {

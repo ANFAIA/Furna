@@ -96,6 +96,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 // Streamed actions
 // --------------------------------------------------------------------------- //
 
+/** `postMessage` throws if the reader already closed the panel and the
+ *  content script disconnected its end (`closePanel` does this deliberately,
+ *  so a stream still in flight does not keep pushing into a detached shadow
+ *  root) — a completely normal interaction, not a bug, so it is swallowed
+ *  rather than left as an unhandled rejection inside an onEvent callback. */
+function safePost(port, message) {
+  try {
+    port.postMessage(message);
+  } catch {
+    /* the other end disconnected; nothing left to tell it */
+  }
+}
+
 /** Ask the active tab's content script for its page text. Rejects if no tab
  *  is active or the content script has not loaded there (e.g. a chrome://
  *  page, or the extension was just installed and the tab predates it) —
@@ -130,7 +143,7 @@ async function runAnalyzePage(port) {
       source: extracted.url || "",
       title: extracted.title || "",
       onEvent: (kind, data) => {
-        port.postMessage({ kind, data });
+        safePost(port, { kind, data });
         if (kind === "chunk" || kind === "result") {
           chrome.tabs.sendMessage(tab.id, { type: "mark-entities", entities: data.entities || [] }).catch(() => {});
         }
@@ -141,7 +154,7 @@ async function runAnalyzePage(port) {
     });
     if (!result) return; // the engine already emitted "error"
   } catch (error) {
-    port.postMessage({ kind: "error", data: { message: String(error?.message ?? error) } });
+    safePost(port, { kind: "error", data: { message: String(error?.message ?? error) } });
   } finally {
     port.disconnect();
   }
@@ -151,9 +164,9 @@ async function runExpand(port) {
   const params = await new Promise((resolve) => port.onMessage.addListener(resolve));
   try {
     const { engine } = await state();
-    await engine.expand(params, { onEvent: (kind, data) => port.postMessage({ kind, data }) });
+    await engine.expand(params, { onEvent: (kind, data) => safePost(port, { kind, data }) });
   } catch (error) {
-    port.postMessage({ kind: "error", data: { message: String(error?.message ?? error) } });
+    safePost(port, { kind: "error", data: { message: String(error?.message ?? error) } });
   } finally {
     port.disconnect();
   }
