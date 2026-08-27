@@ -40,3 +40,18 @@
   outline: none;
   border-color: var(--accent);
 }
+
+.dl-progress {
+  width: 100%;
+  height: 6px;
+  margin: 0.2rem 0;
+  appearance: none;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--bg-sunk);
+  overflow: hidden;
+}
+.dl-progress::-webkit-progress-bar { background: var(--bg-sunk); }
+.dl-progress::-webkit-progress-value { background: var(--accent); }
+.dl-progress::-moz-progress-bar { background: var(--accent); }
+.dl-progress[hidden] { display: none; }

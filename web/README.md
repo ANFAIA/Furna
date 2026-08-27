@@ -25,9 +25,10 @@ backend:
   browser. Ollama sends it by default; LM Studio has a setting for it.
   Without it, requests fail as `Failed to fetch` with no further detail; the
   app now names that possibility explicitly when it happens.
-- **In-browser (WebGPU)** — a small model (Qwen2.5 class) runs entirely on
-  this device's GPU via WebLLM. No key, no server. First use downloads a few
-  hundred MB, cached by the browser after that. Requires a browser with
+- **In-browser (WebGPU)** — a small model (Qwen3 class) runs entirely on
+  this device's GPU via WebLLM or Transformers.js. No key, no server. First use
+  downloads a few hundred MB, cached by the browser after that. Requires a
+  browser with
   WebGPU; the option is disabled otherwise.
 
 ## Testing

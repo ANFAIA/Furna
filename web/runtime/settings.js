@@ -7,7 +7,10 @@
  * Two backends, matching `llm.js`:
  *   - "openai-compatible": a base URL + optional key. The OpenRouter preset
  *     fills in the URL; Custom leaves it for a local server.
- *   - "webllm": a small model run on-device via WebGPU. No key, no URL.
+ *   - "webgpu": a small model run on-device via WebGPU. No key, no URL. One
+ *     model list feeds both on-device runtimes (WebLLM's MLC builds and
+ *     Transformers.js's ONNX builds); the runtime is chosen per model, not as
+ *     a separate UI choice — see `WEBGPU_RUNTIME`.
  */
 
 import { webGpuAvailable } from "./llm.js";
@@ -24,11 +27,26 @@ export const PRESET_MODELS = {
     "google/gemma-4-26b-a4b-it:free",
     "openai/gpt-oss-20b:free",
   ],
-  webllm: ["Qwen2.5-1.5B-Instruct-q4f16_1-MLC", "Qwen2.5-0.5B-Instruct-q4f16_1-MLC", "https://huggingface.co/LiquidAI/LFM2.5-230M"],
+  // One shared "webgpu" list — not split by runtime. Each model names the
+  // runtime it was compiled for; the engine picks `webLlm` (MLC/WebLLM) or
+  // `transformersJs` (ONNX/Transformers.js) from `WEBGPU_RUNTIME` below, so
+  // the UI never asks which.
+  webgpu: [
+    "onnx-community/Qwen3-0.6B-ONNX",
+    "onnx-community/Qwen3-1.7B-ONNX",
+  ],
+};
+
+/** Which on-device runtime a webgpu model needs. MLC-built ids run on WebLLM;
+ *  ONNX repo ids run on Transformers.js. Read once the user picks a model —
+ *  see `roleConfig`. (exactly one key per `PRESET_MODELS.webgpu`) */
+export const WEBGPU_RUNTIME = {
+  "onnx-community/Qwen3-1.7B-ONNX": "transformers",
+  "onnx-community/Qwen3-0.6B-ONNX": "transformers",
 };
 
 const DEFAULTS = {
-  backend: "openai-compatible", // "openai-compatible" | "webllm"
+  backend: "openai-compatible", // "openai-compatible" | "webgpu"
   baseUrlPreset: "openrouter", // "openrouter" | "custom"
   customBaseUrl: "http://localhost:1234/v1",
   apiKey: "",
@@ -42,7 +60,7 @@ const DEFAULTS = {
   openrouterExpanderModel: PRESET_MODELS.openrouter[1],
   customExtractorModel: "",
   customExpanderModel: "",
-  webllmModel: PRESET_MODELS.webllm[0],
+  webgpuModel: PRESET_MODELS.webgpu[0],
   extractionConcurrency: 3,
 };
 
@@ -73,6 +91,17 @@ function load() {
   // and then persisted to whatever browser profile ran it. Reset it rather
   // than carry a guaranteed-broken URL forward into someone else's session.
   if (stored.customBaseUrl === "http://127.0.0.1:1") delete stored.customBaseUrl;
+
+  // The two WebGPU runtimes (WebLLM/Transformers.js) were once separate
+  // backends with their own model fields. They merged into one "webgpu"
+  // backend + one `webgpuModel`; carry the previously-selected model over
+  // instead of silently dropping back to the default.
+  if (stored.backend === "webllm" || stored.backend === "transformers") {
+    stored.backend = "webgpu";
+    stored.webgpuModel ??= stored.webllmModel ?? stored.transformersModel;
+    delete stored.webllmModel;
+    delete stored.transformersModel;
+  }
 
   return { ...DEFAULTS, ...stored };
 }
@@ -126,11 +155,13 @@ export class Settings {
    *  `role` is "extractor" | "expander" | "subagent" — subagent is unused in
    *  the browser build (no orchestration; see PLAN.md) and mirrors expander. */
   roleConfig(role) {
-    if (this.#state.backend === "webllm") {
+    if (this.#state.backend === "webgpu") {
+      const model = this.#state.webgpuModel;
+      const runtime = WEBGPU_RUNTIME[model] ?? "webllm";
       return {
-        backend: "webllm",
-        model: this.#state.webllmModel,
-        label: `webllm:${this.#state.webllmModel}`,
+        backend: runtime, // the engine-level backend, resolved from the model
+        model,
+        label: `webgpu:${model}`,
         baseUrl: null,
         contextWindow: null,
         maxTokens: 2048,
@@ -166,8 +197,8 @@ export class Settings {
       if (!this.#state[this.modelKey("extractor")] || !this.#state[this.modelKey("expander")]) {
         problems.push("Set a model for the extractor and expander roles in Settings.");
       }
-    } else if (this.#state.backend === "webllm" && !webGpuAvailable()) {
-      problems.push("This browser has no WebGPU, which WebLLM requires. Switch to OpenRouter or a local server.");
+    } else if (this.#state.backend === "webgpu" && !webGpuAvailable()) {
+      problems.push("This browser has no WebGPU, which the in-browser backend requires. Switch to OpenRouter or a local server.");
     }
     return problems;
   }

@@ -81,3 +81,26 @@ test("missing models under either preset is a problem", async () => {
   settings.set(settings.modelKey("extractor"), "");
   assert.ok(settings.problems().some((p) => p.includes("model")));
 });
+
+test("webgpu resolves the engine-level backend from the chosen model", async () => {
+  const { WEBGPU_RUNTIME } = await import(`../../web/runtime/settings.js?t=${Math.random()}`);
+  const settings = await freshSettings();
+  settings.set("backend", "webgpu");
+  // Every model on the webgpu list runs on the transformers/ONNX runtime.
+  settings.set("webgpuModel", "onnx-community/Qwen3-1.7B-ONNX");
+  assert.equal(WEBGPU_RUNTIME["onnx-community/Qwen3-1.7B-ONNX"], "transformers");
+  assert.equal(settings.roleConfig("extractor").backend, "transformers");
+  settings.set("webgpuModel", "onnx-community/Qwen3-0.6B-ONNX");
+  assert.equal(WEBGPU_RUNTIME["onnx-community/Qwen3-0.6B-ONNX"], "transformers");
+  assert.equal(settings.roleConfig("extractor").backend, "transformers");
+});
+
+test("the split WebLLM/Transformers backends migrate into the single webgpu backend", async () => {
+  localStorage.setItem(
+    "furna.settings.v1",
+    JSON.stringify({ backend: "transformers", transformersModel: "onnx-community/Llama-3.2-1B-ONNX" }),
+  );
+  const settings = await freshSettings();
+  assert.equal(settings.get("backend"), "webgpu");
+  assert.equal(settings.get("webgpuModel"), "onnx-community/Llama-3.2-1B-ONNX");
+});

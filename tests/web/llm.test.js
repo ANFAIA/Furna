@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openAiCompatible } from "../../web/runtime/llm.js";
+import { openAiCompatible, translateDecodeError } from "../../web/runtime/llm.js";
 import { startFakeServer } from "./fake-server.js";
 
 test("streams content deltas and assembles the full answer", async () => {
@@ -63,4 +63,15 @@ test("a non-2xx response raises with the status and body", async () => {
   } finally {
     await server.close();
   }
+});
+
+test("translateDecodeError turns a WebGPU shader bound-check into actionable advice", () => {
+  const err = translateDecodeError(new Error("table index is out of bounds"));
+  assert.match(err.message, /WebGPU/);
+  assert.match(err.message, /Qwen3-0.6B/);
+});
+
+test("translateDecodeError leaves a non-shader error untouched", () => {
+  const original = new Error("HTTP 500");
+  assert.equal(translateDecodeError(original), original);
 });

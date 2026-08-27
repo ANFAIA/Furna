@@ -14,7 +14,7 @@
 import { extractStream, expandStream } from "./engine.js";
 import { docHash, EXTRACTION_CHUNK_CHARS } from "./text.js";
 import { store, ENTITIES_KEY } from "./store.js";
-import { openAiCompatible, webLlm } from "./llm.js";
+import { openAiCompatible, webLlm, transformersJs } from "./llm.js";
 import { fetchDocument, FetchError } from "./fetcher.js";
 
 const ROUTE = /^\/api\/([a-z/-]+?)(?:\/([A-Za-z0-9_-]+))?$/;
@@ -58,6 +58,9 @@ function modelFor(settings, role) {
   if (config.backend === "webllm") {
     return webLlm({ model: config.model, onProgress: (r) => settings.reportProgress?.(role, r) });
   }
+  if (config.backend === "transformers") {
+    return transformersJs({ model: config.model, onProgress: (r) => settings.reportProgress?.(role, r) });
+  }
   return openAiCompatible({
     baseUrl: config.baseUrl,
     apiKey: config.apiKey,
@@ -68,6 +71,21 @@ function modelFor(settings, role) {
 
 function expandedIds(doc, model) {
   return store.keys(doc, model.label).then((keys) => [...new Set(keys.map((k) => k.split("@")[0]))].sort());
+}
+
+/** Preload a backend's model so the first request does not stall on a giant
+ *  download. `modelFor` wires the load's progress to settings.reportProgress,
+ *  which the Settings progress bar already renders. No-op for the
+ *  openai-compatible backend (nothing to preload) and for a model already
+ *  warmed (both backends memoize their engine promise). */
+export async function warmOne(settings, role) {
+  const model = modelFor(settings, role);
+  if (typeof model.warm !== "function") return;
+  try {
+    await model.warm();
+  } catch {
+    // surface the failure in the Settings status line; the bar hides itself
+  }
 }
 
 async function handleSample() {
