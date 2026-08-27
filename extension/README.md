@@ -43,6 +43,9 @@ exercised against a real browser. Whoever loads this first should check:
       API presets` commit).
 - [ ] With no key set, **Analyze this page** is disabled and the problem line
       names why.
+- [ ] On a `chrome://` tab (the extensions page itself, say), **Analyze this
+      page** is disabled *before* being pressed, saying Chrome does not allow
+      extensions there — not after a click and a wait.
 - [ ] With a real OpenRouter key: open any article page, click **Analyze this
       page** — the entity list fills in as chunks arrive, and marks appear in
       the page text at the same time (not after a delay).

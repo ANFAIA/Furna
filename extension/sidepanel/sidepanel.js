@@ -7,8 +7,27 @@
  */
 
 import { PRESET_MODELS } from "../background/settings.js";
+import { whyNotAnalyzable } from "./page-support.js";
 
 const el = (id) => document.getElementById(id);
+
+/** Analyze is gated on two independent things: whether the provider is
+ *  configured, and whether Chrome will let a content script run on this tab at
+ *  all. They are discovered by different code paths at different times, so
+ *  each records its own reason and one place decides what the button does —
+ *  otherwise whichever ran last silently overwrites the other's verdict. */
+let settingsProblems = [];
+let pageBlockedReason = null;
+
+function refreshAvailability() {
+  // The page reason goes first: with a chrome:// tab open, "paste an API key"
+  // is true but useless — nothing will run here whatever the key says.
+  const reasons = [pageBlockedReason, ...settingsProblems].filter(Boolean);
+  el("problem").hidden = reasons.length === 0;
+  el("problem").textContent = reasons.join(" ");
+  el("btn-analyze").disabled = reasons.length > 0;
+  el("btn-refresh").disabled = reasons.length > 0;
+}
 
 function send(message) {
   return chrome.runtime.sendMessage(message);
@@ -57,7 +76,13 @@ function reportBroken(error) {
   el("btn-analyze").disabled = true;
 }
 
+/** Typing in the key field fires one sync per keystroke, and their replies can
+ *  come back out of order — an older one landing last would repaint the form
+ *  from state that is already stale. Only the newest sync is allowed to write. */
+let syncGeneration = 0;
+
 async function syncSettingsForm() {
+  const generation = ++syncGeneration;
   let settings;
   let problems;
   try {
@@ -67,6 +92,7 @@ async function syncSettingsForm() {
     reportBroken(error);
     return;
   }
+  if (generation !== syncGeneration) return; // superseded while awaiting
   const preset = settings.baseUrlPreset;
 
   document.querySelectorAll("[data-preset]").forEach((tab) => tab.classList.toggle("is-on", tab.dataset.preset === preset));
@@ -80,9 +106,8 @@ async function syncSettingsForm() {
   if (document.activeElement !== el("extractor")) el("extractor").value = settings[modelKeyFor(preset, "extractor")] || "";
   if (document.activeElement !== el("expander")) el("expander").value = settings[modelKeyFor(preset, "expander")] || "";
 
-  el("problem").hidden = problems.length === 0;
-  el("problem").textContent = problems.join(" ");
-  el("btn-analyze").disabled = problems.length > 0;
+  settingsProblems = problems;
+  refreshAvailability();
 }
 
 document.querySelectorAll("[data-preset]").forEach((tab) =>
@@ -94,7 +119,14 @@ document.querySelectorAll("[data-preset]").forEach((tab) =>
 // Every write below targets the field for the CURRENT preset, read fresh from
 // the background rather than from a copy this page captured earlier — the
 // preset can have been switched since.
-el("key").addEventListener("input", () => setSetting("apiKey", el("key").value.trim()));
+// `input`, so a pasted key takes effect immediately — and it MUST re-sync:
+// without that the panel keeps the "paste an API key" problem it read before
+// the key existed, and Analyze stays disabled until some unrelated
+// interaction happens to refresh it.
+el("key").addEventListener("input", async () => {
+  await setSetting("apiKey", el("key").value.trim());
+  syncSettingsForm();
+});
 el("url").addEventListener("change", async () => {
   const settings = await send({ type: "settings.snapshot" });
   await setSetting(baseUrlKeyFor(settings.baseUrlPreset), el("url").value.trim());
@@ -153,6 +185,13 @@ el("filter").addEventListener("input", renderEntityList);
 async function loadActiveTabState() {
   const tab = await activeTab();
   el("page-title").textContent = tab?.title || "no active tab";
+  // Decided from the URL before anything is clicked. Chrome will not inject a
+  // content script into its own pages, so "Analyze" on a chrome:// tab could
+  // only ever fail — and it used to do that only after the reader pressed it
+  // and waited.
+  pageBlockedReason = tab ? whyNotAnalyzable(tab.url) : "No active tab.";
+  refreshAvailability();
+
   const known = await send({ type: "active-tab-state" }).catch(() => null);
   if (known) {
     currentDocHash = known.docHash;
@@ -167,8 +206,8 @@ async function loadActiveTabState() {
 }
 
 function runAnalyze(refresh) {
-  const button = refresh ? el("btn-refresh") : el("btn-analyze");
-  button.disabled = true;
+  el("btn-analyze").disabled = true;
+  el("btn-refresh").disabled = true;
   el("status").textContent = refresh ? "re-reading the page…" : "reading the page…";
   currentEntities = [];
   renderEntityList();
@@ -191,9 +230,10 @@ function runAnalyze(refresh) {
       el("status").textContent = `error: ${data.message}`;
     }
   });
-  port.onDisconnect.addListener(() => {
-    button.disabled = false;
-  });
+  // Back through the single gate, not a blind re-enable: whatever disabled
+  // these before the run (an unconfigured provider, a page Chrome will not run
+  // on) is still true when it ends.
+  port.onDisconnect.addListener(refreshAvailability);
 }
 
 el("btn-analyze").addEventListener("click", () => runAnalyze(false));

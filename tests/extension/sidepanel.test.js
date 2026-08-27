@@ -59,6 +59,20 @@ test("an element the panel hides is not given a display the browser's [hidden] r
   );
 });
 
+test("every settings field re-syncs after writing, so the gate reflects what was just typed", () => {
+  // Reported live: pasting the API key left "Analyze this page" disabled. The
+  // key's handler wrote the setting but never re-read `problems()`, so the
+  // panel kept the "paste an API key" verdict it had formed before the key
+  // existed. Three of the four fields did re-sync; only that one did not, and
+  // nothing about reading the file made the omission visible.
+  const handlers = [...js.matchAll(/el\(["'`](key|url|extractor|expander)["'`]\)\.addEventListener\(\s*["'`](?:input|change)["'`],([\s\S]*?)\n\}\);/g)];
+  assert.equal(handlers.length, 4, "expected a handler for each of the four settings fields");
+
+  for (const [, field, body] of handlers) {
+    assert.match(body, /syncSettingsForm\(\)/, `the ${field} field writes its setting but never re-syncs the form`);
+  }
+});
+
 test("the panel's own hint about where the key goes names a field the reader can see", () => {
   // The warning reads "sent only to the base URL above". While the Base URL
   // field was hidden under the OpenRouter preset, that sentence pointed at
