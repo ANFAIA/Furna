@@ -64,6 +64,18 @@ let messageListener;
 let connectListener;
 let tabsSendMessageImpl;
 
+/** Poll for the port to disconnect rather than sleep a fixed guess: a flat
+ *  `setTimeout` is exactly the kind of test that passes locally and flakes
+ *  the moment the machine is briefly under load — seen live, one run in four
+ *  came back 15x slower than the rest with two of these timing out early. */
+async function waitForDisconnect(port, { timeoutMs = 2000 } = {}) {
+  const start = Date.now();
+  while (!port.disconnected) {
+    if (Date.now() - start > timeoutMs) throw new Error("port never disconnected");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 beforeEach(() => {
   messageListener = undefined;
   connectListener = undefined;
@@ -152,9 +164,8 @@ test("analyze-page: asks the active tab for its text, streams to the port, marks
     const port = new FakePort("analyze-page");
     connectListener(port);
     port.emit({ refresh: false });
-    await new Promise((resolve) => setTimeout(resolve, 50)); // let the async handler run to completion
+    await waitForDisconnect(port);
 
-    assert.ok(port.disconnected);
     const kinds = port.sent.map((m) => m.kind);
     assert.ok(kinds.includes("result"));
     assert.ok(marked.length > 0, "the content script should have been told to mark at least one batch");
@@ -175,9 +186,8 @@ test("analyze-page: a tab the content script cannot reach reports an error over 
   const port = new FakePort("analyze-page");
   connectListener(port);
   port.emit({ refresh: false });
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await waitForDisconnect(port);
 
-  assert.ok(port.disconnected);
   assert.equal(port.sent.length, 1);
   assert.equal(port.sent[0].kind, "error");
   assert.match(port.sent[0].data.message, /reload the tab/);
@@ -216,9 +226,8 @@ test("analyze-page: the reader closing the panel mid-stream does not crash the f
 
     connectListener(port);
     port.emit({ refresh: false });
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await waitForDisconnect(port);
 
-    assert.ok(port.disconnected);
     // Nothing after the disconnect made it into `sent` — safePost swallowed
     // it — but nothing THREW either, which is the actual point: the process
     // would otherwise have surfaced an unhandled rejection and failed this test.
@@ -240,9 +249,8 @@ test("expand: streams progress then result over its own port", async () => {
     const port = new FakePort("expand");
     connectListener(port);
     port.emit({ document: "doc", entityId: "a", canonical: "A", kind: "method", surfaceForms: ["A"], sentence: "s", verbosity: "brief" });
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await waitForDisconnect(port);
 
-    assert.ok(port.disconnected);
     const last = port.sent.at(-1);
     assert.equal(last.kind, "result");
     assert.equal(last.data.expansion.title, "A");
