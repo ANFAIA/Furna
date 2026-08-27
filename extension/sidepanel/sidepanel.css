@@ -79,6 +79,11 @@ body {
 .seg.is-on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 
 .field { display: block; margin-bottom: 0.55em; font-size: 0.85em; }
+/* `.field { display: block }` is an author rule and `[hidden] { display: none }`
+   is the browser's, so the author rule wins and the `hidden` attribute does
+   nothing — the key and Base URL fields were BOTH visible under every preset.
+   Any rule that sets `display` on something later hidden needs this. */
+[hidden] { display: none !important; }
 .field span { display: block; margin-bottom: 0.2em; color: var(--ink-soft); }
 .field input, #filter {
   width: 100%;

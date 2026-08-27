@@ -24,6 +24,19 @@ async function activeTab() {
 // --------------------------------------------------------------------------- //
 
 const modelKeyFor = (preset, role) => `${preset}${role === "extractor" ? "ExtractorModel" : "ExpanderModel"}`;
+const baseUrlKeyFor = (preset) => `${preset}BaseUrl`;
+
+/** Persisting is not optional for the fields that decide whether a request can
+ *  be made at all: a value that never reached storage is gone the moment the
+ *  service worker is evicted, leaving a panel that still looks configured. */
+async function setSetting(key, value) {
+  const reply = await send({ type: "settings.set", key, value });
+  if (reply && reply.ok === false) {
+    el("problem").hidden = false;
+    el("problem").textContent = "This browser refused to save the setting — check that extension storage is not full or blocked.";
+  }
+  return reply;
+}
 
 for (const model of PRESET_MODELS.openrouter) {
   for (const listId of ["extractor-list", "expander-list"]) {
@@ -57,11 +70,13 @@ async function syncSettingsForm() {
   const preset = settings.baseUrlPreset;
 
   document.querySelectorAll("[data-preset]").forEach((tab) => tab.classList.toggle("is-on", tab.dataset.preset === preset));
+  // The key is only meaningful for a provider that authenticates; the base URL
+  // is shown for BOTH presets, so the warning underneath it ("sent only to the
+  // base URL above") names something the reader can actually see and check.
   document.querySelector('[data-field="key"]').hidden = preset !== "openrouter";
-  document.querySelector('[data-field="url"]').hidden = preset !== "custom";
 
   if (document.activeElement !== el("key")) el("key").value = settings.apiKey || "";
-  if (document.activeElement !== el("url")) el("url").value = settings.customBaseUrl || "";
+  if (document.activeElement !== el("url")) el("url").value = settings[baseUrlKeyFor(preset)] || "";
   if (document.activeElement !== el("extractor")) el("extractor").value = settings[modelKeyFor(preset, "extractor")] || "";
   if (document.activeElement !== el("expander")) el("expander").value = settings[modelKeyFor(preset, "expander")] || "";
 
@@ -72,20 +87,27 @@ async function syncSettingsForm() {
 
 document.querySelectorAll("[data-preset]").forEach((tab) =>
   tab.addEventListener("click", async () => {
-    await send({ type: "settings.set", key: "baseUrlPreset", value: tab.dataset.preset });
+    await setSetting("baseUrlPreset", tab.dataset.preset);
     syncSettingsForm();
   }),
 );
-el("key").addEventListener("input", () => send({ type: "settings.set", key: "apiKey", value: el("key").value.trim() }));
-el("url").addEventListener("input", () => send({ type: "settings.set", key: "customBaseUrl", value: el("url").value.trim() }));
+// Every write below targets the field for the CURRENT preset, read fresh from
+// the background rather than from a copy this page captured earlier — the
+// preset can have been switched since.
+el("key").addEventListener("input", () => setSetting("apiKey", el("key").value.trim()));
+el("url").addEventListener("change", async () => {
+  const settings = await send({ type: "settings.snapshot" });
+  await setSetting(baseUrlKeyFor(settings.baseUrlPreset), el("url").value.trim());
+  syncSettingsForm();
+});
 el("extractor").addEventListener("change", async () => {
   const settings = await send({ type: "settings.snapshot" });
-  await send({ type: "settings.set", key: modelKeyFor(settings.baseUrlPreset, "extractor"), value: el("extractor").value.trim() });
+  await setSetting(modelKeyFor(settings.baseUrlPreset, "extractor"), el("extractor").value.trim());
   syncSettingsForm();
 });
 el("expander").addEventListener("change", async () => {
   const settings = await send({ type: "settings.snapshot" });
-  await send({ type: "settings.set", key: modelKeyFor(settings.baseUrlPreset, "expander"), value: el("expander").value.trim() });
+  await setSetting(modelKeyFor(settings.baseUrlPreset, "expander"), el("expander").value.trim());
   syncSettingsForm();
 });
 

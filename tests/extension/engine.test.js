@@ -148,3 +148,71 @@ test("clearCache removes cached answers but not the remembered document", async 
     await server.close();
   }
 });
+
+// --------------------------------------------------------------------------- //
+// Refusing before spending a request
+// --------------------------------------------------------------------------- //
+
+/** A Settings whose `problems()` is under the test's control, so the guard can
+ *  be exercised without building a whole misconfigured settings object. */
+function settingsWithProblems(problems, baseUrl) {
+  return { ...fakeSettings(baseUrl), problems: () => problems };
+}
+
+test("analyze refuses with the configuration problem instead of a provider 401", async () => {
+  // Reported live: with no key reaching the worker, the request went out with
+  // no Authorization header and came back
+  // `HTTP 401: {"error":{"message":"Missing Authentication header"}}` — a
+  // message that says nothing about the actual cause.
+  const server = await startFakeServer([{ status: 401, message: "Missing Authentication header" }]);
+  try {
+    const settings = settingsWithProblems(["Paste an OpenRouter API key in Settings."], server.baseUrl);
+    const engine = createEngine({ settings, store: new Store() });
+    const events = [];
+    const result = await engine.analyze("A document.", { onEvent: (kind, data) => events.push([kind, data]) });
+
+    assert.equal(result, null);
+    assert.deepEqual(events, [["error", { message: "Paste an OpenRouter API key in Settings." }]]);
+    assert.equal(server.requests.length, 0, "nothing should have been sent to the provider");
+  } finally {
+    await server.close();
+  }
+});
+
+test("expand refuses the same way", async () => {
+  const server = await startFakeServer([{ status: 401, message: "Missing Authentication header" }]);
+  try {
+    const settings = settingsWithProblems(["Set a model for the extractor and expander roles."], server.baseUrl);
+    const engine = createEngine({ settings, store: new Store() });
+    const events = [];
+    await engine.expand(
+      { document: "doc", entityId: "a", canonical: "A", kind: "method", surfaceForms: ["A"], sentence: "s", verbosity: "brief" },
+      { onEvent: (kind, data) => events.push([kind, data]) },
+    );
+    assert.deepEqual(events, [["error", { message: "Set a model for the extractor and expander roles." }]]);
+    assert.equal(server.requests.length, 0);
+  } finally {
+    await server.close();
+  }
+});
+
+test("a document already read stays readable after the key is gone", async () => {
+  // The guard sits after the cache check on purpose: losing the key must not
+  // take the work already paid for with it.
+  const server = await startFakeServer([
+    [{ text: JSON.stringify({ topic: "T", entities: [{ id: "a", canonical: "A", kind: "method", gloss: "", surface_forms: ["A"] }] }) }],
+  ]);
+  try {
+    const store = new Store();
+    const working = fakeSettings(server.baseUrl);
+    const first = await createEngine({ settings: working, store }).analyze("A document.", {});
+    assert.equal(first.cached, false);
+
+    const broken = settingsWithProblems(["Paste an OpenRouter API key in Settings."], server.baseUrl);
+    const again = await createEngine({ settings: broken, store }).analyze("A document.", {});
+    assert.equal(again.cached, true);
+    assert.deepEqual(again.entities.map((e) => e.id), ["a"]);
+  } finally {
+    await server.close();
+  }
+});

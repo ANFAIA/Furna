@@ -331,6 +331,10 @@ test("expand: streams progress then result over its own port", async () => {
     await loadBackground();
     await call({ type: "settings.set", key: "baseUrlPreset", value: "custom" });
     await call({ type: "settings.set", key: "customBaseUrl", value: server.baseUrl });
+    // Both models, not just the expander this test exercises: `problems()` is
+    // a whole-configuration answer, and the engine now refuses to spend a
+    // request while any of it is missing.
+    await call({ type: "settings.set", key: "customExtractorModel", value: "m" });
     await call({ type: "settings.set", key: "customExpanderModel", value: "m" });
 
     const port = new FakePort("expand");

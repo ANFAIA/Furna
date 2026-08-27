@@ -37,6 +37,12 @@ export const PRESET_MODELS = {
 
 const DEFAULTS = {
   baseUrlPreset: "openrouter", // "openrouter" | "custom"
+  // Per preset, like the models below. OpenRouter's URL used to be hardcoded
+  // and its field hidden, so the panel's own warning ("sent only to the base
+  // URL above") pointed at nothing the reader could see — and a URL typed
+  // while OpenRouter was selected silently landed in the custom slot and was
+  // ignored. Both presets now show and store their own.
+  openrouterBaseUrl: OPENROUTER_URL,
   customBaseUrl: "http://localhost:1234/v1",
   apiKey: "",
   // Per preset, not shared — see web/runtime/settings.js's history for why:
@@ -88,10 +94,17 @@ export class Settings {
     return this.#state[key];
   }
 
+  /** Updates the in-memory value synchronously — every reader here
+   *  (`roleConfig`, `problems`) depends on that — and returns the promise for
+   *  the storage write, so a caller that must know the value survived can
+   *  await it. The panel does: a key that never reached storage is a key the
+   *  service worker loses the moment it is evicted, while the panel still
+   *  shows it typed in and looks configured. */
   set(key, value) {
     this.#state[key] = value;
-    this.#save();
+    const saved = this.#save();
     for (const listener of this.#listeners) listener(key, value);
+    return saved;
   }
 
   /** All settings, for a client that needs to render the whole form at once
@@ -105,15 +118,30 @@ export class Settings {
     return () => this.#listeners.delete(listener);
   }
 
-  #save() {
-    // Fire-and-forget, same as the localStorage version's #save(): a write
-    // failure (quota, disabled storage) should not block the UI that
-    // triggered it, only fail to persist for next time.
-    chrome.storage.local.set({ [STORAGE_KEY]: JSON.stringify(this.#state) }).catch(() => {});
+  /** Resolves to whether the write actually landed. Not fire-and-forget: a
+   *  silently-dropped write is how a pasted API key turns into a provider
+   *  401 several minutes later, with a panel that still looks correct. */
+  async #save() {
+    try {
+      await chrome.storage.local.set({ [STORAGE_KEY]: JSON.stringify(this.#state) });
+      return true;
+    } catch {
+      return false; // quota, or storage disabled — the caller decides what to say
+    }
   }
 
   #baseUrl() {
-    return this.#state.baseUrlPreset === "openrouter" ? OPENROUTER_URL : this.#state.customBaseUrl;
+    const url = this.#state[this.baseUrlKey()];
+    // Emptying OpenRouter's field falls back to the official endpoint rather
+    // than firing a request at "" — the preset is named after that URL, so it
+    // is the one value the reader should not be able to lose by accident.
+    if (!url && this.#state.baseUrlPreset === "openrouter") return OPENROUTER_URL;
+    return url;
+  }
+
+  /** The base-URL field name for the CURRENT preset, mirroring `modelKey`. */
+  baseUrlKey() {
+    return `${this.#state.baseUrlPreset}BaseUrl`;
   }
 
   modelKey(role) {

@@ -94,3 +94,53 @@ test("snapshot returns every field for a client that renders the whole form at o
   assert.equal(snap.baseUrlPreset, "openrouter");
   assert.ok("openrouterExtractorModel" in snap);
 });
+
+// --------------------------------------------------------------------------- //
+// Base URL, per preset
+// --------------------------------------------------------------------------- //
+
+test("OpenRouter's base URL is there by default, and is what a request would use", async () => {
+  const settings = await freshSettings();
+  assert.equal(settings.get("openrouterBaseUrl"), "https://openrouter.ai/api/v1");
+  assert.equal(settings.roleConfig("extractor").baseUrl, "https://openrouter.ai/api/v1");
+});
+
+test("each preset keeps its own base URL", async () => {
+  // Before this, OpenRouter's URL was hardcoded and its field hidden, so a URL
+  // typed while OpenRouter was selected landed in the custom slot and was
+  // silently ignored — the shape of the reported "I set the URL and it still
+  // 401'd" confusion.
+  const settings = await freshSettings();
+  settings.set("baseUrlPreset", "custom");
+  settings.set(settings.baseUrlKey(), "http://localhost:11434/v1");
+
+  settings.set("baseUrlPreset", "openrouter");
+  assert.equal(settings.roleConfig("extractor").baseUrl, "https://openrouter.ai/api/v1");
+
+  settings.set("baseUrlPreset", "custom");
+  assert.equal(settings.roleConfig("extractor").baseUrl, "http://localhost:11434/v1");
+});
+
+test("emptying OpenRouter's URL falls back to the official endpoint, not to nothing", async () => {
+  const settings = await freshSettings();
+  settings.set("openrouterBaseUrl", "");
+  assert.equal(settings.roleConfig("extractor").baseUrl, "https://openrouter.ai/api/v1");
+});
+
+test("a URL pointed elsewhere is honoured — a gateway or proxy is a real use", async () => {
+  const settings = await freshSettings();
+  settings.set("openrouterBaseUrl", "https://gateway.example.com/v1");
+  assert.equal(settings.roleConfig("extractor").baseUrl, "https://gateway.example.com/v1");
+});
+
+test("set reports whether the value actually reached storage", async () => {
+  // Not cosmetic: a write that never landed is gone the moment the service
+  // worker is evicted, which is how a pasted key becomes a 401 minutes later.
+  const settings = await freshSettings();
+  assert.equal(await settings.set("apiKey", "sk-or-test"), true);
+
+  chrome.storage.local.set = async () => {
+    throw new Error("QUOTA_BYTES quota exceeded");
+  };
+  assert.equal(await settings.set("apiKey", "sk-or-other"), false);
+});

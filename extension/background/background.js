@@ -76,8 +76,11 @@ const ONE_SHOT = {
     return (await state()).settings.snapshot();
   },
   async "settings.set"(message) {
-    (await state()).settings.set(message.key, message.value);
-    return { ok: true };
+    // Awaited, not fired and forgotten: the panel needs to know the value
+    // reached storage, because anything that did not is lost the next time
+    // this worker is evicted.
+    const saved = await (await state()).settings.set(message.key, message.value);
+    return { ok: saved };
   },
   async "settings.problems"() {
     return (await state()).settings.problems();

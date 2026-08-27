@@ -31,6 +31,20 @@ function expandedIds(store, doc, model) {
  *  bundled once, so the port/message router below only has to know the
  *  action names, not the settings/store plumbing behind each one. */
 export function createEngine({ settings, store }) {
+  /** Refuse before spending a request on a configuration that cannot work.
+   *
+   *  The side panel disables its Analyze button on the same `problems()`, but
+   *  that is a snapshot held in a different page: the service worker can be
+   *  evicted and re-hydrated underneath it, so the panel can look configured
+   *  while the worker has no key. Without this check that mismatch reaches
+   *  the provider as a request with no Authorization header, and comes back
+   *  as `HTTP 401: Missing Authentication header` — which tells the reader
+   *  nothing about the actual cause. */
+  function refuseIfUnconfigured() {
+    const problems = settings.problems();
+    if (problems.length) throw new Error(problems.join(" "));
+  }
+
   async function health() {
     const roles = {};
     for (const role of ["extractor", "expander"]) {
@@ -89,6 +103,16 @@ export function createEngine({ settings, store }) {
       }
     }
 
+    // After the cache check, not before: a document already read stays
+    // readable even once the key is gone, and re-reading it is the only thing
+    // that actually needs a working provider.
+    try {
+      refuseIfUnconfigured();
+    } catch (error) {
+      onEvent?.("error", { message: error.message });
+      return null;
+    }
+
     const model = modelFor(settings, "extractor");
     try {
       for await (const event of extractStream(model, document, { concurrency: settings.extractionConcurrency })) {
@@ -142,6 +166,7 @@ export function createEngine({ settings, store }) {
           return;
         }
       }
+      refuseIfUnconfigured(); // same reason as analyze; the catch below reports it
       onEvent?.("progress", { message: "thinking…" });
       const model = modelFor(settings, "expander");
       for await (const [kind, payload] of expandStream(model, {
