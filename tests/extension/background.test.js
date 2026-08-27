@@ -422,3 +422,24 @@ test("expand: streams progress then result over its own port", async () => {
     await server.close();
   }
 });
+
+test("provider.test reaches the provider and caches the catalogue for provider.models", async () => {
+  await loadBackground();
+  assert.deepEqual(await call({ type: "provider.models" }), [], "nothing cached before a test is run");
+
+  globalThis.fetch = async (url) => ({
+    ok: true,
+    status: 200,
+    json: async () =>
+      url.endsWith("/key")
+        ? { data: { label: "furna" } }
+        : { data: [{ id: "a/free:free", pricing: { prompt: "0", completion: "0" } }, { id: "b/paid", pricing: { prompt: "1", completion: "1" } }] },
+  });
+  await call({ type: "settings.set", key: "apiKey", value: "sk-or-test" });
+
+  const result = await call({ type: "provider.test" });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.models.map((m) => m.id), ["a/free:free", "b/paid"]);
+  // The panel reads this on open so reopening does not need another round trip.
+  assert.deepEqual((await call({ type: "provider.models" })).map((m) => m.id), ["a/free:free", "b/paid"]);
+});

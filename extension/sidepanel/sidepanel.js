@@ -32,6 +32,11 @@ function refreshAvailability() {
   el("problem").textContent = reasons.join(" ");
   el("btn-analyze").disabled = reasons.length > 0;
   el("btn-refresh").disabled = reasons.length > 0;
+
+  // A settings problem forces the section open: the fix is in there, and a
+  // warning folded out of sight is a warning nobody reads. A page-only reason
+  // does not — there is nothing to change in settings for a chrome:// tab.
+  if (settingsProblems.length) el("settings").open = true;
 }
 
 function send(message) {
@@ -62,13 +67,26 @@ async function setSetting(key, value) {
   return reply;
 }
 
-for (const model of PRESET_MODELS.openrouter) {
+/** Fill both model pickers. Free models come first — that is the list a reader
+ *  without a budget needs at the top — and each option's label carries what
+ *  distinguishes it, since the ids alone are long and nearly identical. */
+function renderModelOptions(models) {
   for (const listId of ["extractor-list", "expander-list"]) {
-    const option = document.createElement("option");
-    option.value = model;
-    el(listId).append(option);
+    const list = el(listId);
+    list.innerHTML = "";
+    for (const model of models) {
+      const option = document.createElement("option");
+      option.value = model.id;
+      const context = model.contextLength ? `${Math.round(model.contextLength / 1000)}k ctx` : "";
+      option.label = [model.free ? "free" : null, context].filter(Boolean).join(" · ");
+      list.append(option);
+    }
   }
 }
+
+// Until a catalogue is fetched, the built-in shortlist is what the pickers
+// offer — better than an empty dropdown on a fresh install.
+renderModelOptions(PRESET_MODELS.openrouter.map((id) => ({ id, free: id.endsWith(":free"), contextLength: null })));
 
 /** Show a failure to reach the background rather than rejecting into nowhere.
  *  The panel is a separate page from the service worker: if the worker
@@ -111,9 +129,39 @@ async function syncSettingsForm() {
   if (document.activeElement !== el("extractor")) el("extractor").value = settings[modelKeyFor(preset, "extractor")] || "";
   if (document.activeElement !== el("expander")) el("expander").value = settings[modelKeyFor(preset, "expander")] || "";
 
+  // Testing needs something to test with: a key for OpenRouter, a URL for a
+  // custom server. Offering the button before then is offering a guaranteed
+  // failure.
+  const testable = preset === "openrouter" ? Boolean(settings.apiKey) : Boolean(settings[baseUrlKeyFor(preset)]);
+  el("btn-test").hidden = !testable;
+
+  renderSettingsSummary(settings);
   settingsProblems = problems;
   refreshAvailability();
 }
+
+/** One line summarising the provider while the section is folded shut, so
+ *  collapsing it does not hide what it is currently set to. */
+function renderSettingsSummary(settings) {
+  const preset = settings.baseUrlPreset;
+  const model = settings[modelKeyFor(preset, "extractor")] || "no model";
+  el("settings-summary").textContent = `${preset === "openrouter" ? "OpenRouter" : "Custom"} · ${model}`;
+}
+
+el("btn-test").addEventListener("click", async () => {
+  const button = el("btn-test");
+  button.disabled = true;
+  el("test-result").textContent = "testing…";
+  try {
+    const result = await send({ type: "provider.test" });
+    el("test-result").textContent = result.message;
+    if (result.models?.length) renderModelOptions(result.models);
+  } catch (error) {
+    el("test-result").textContent = `could not test: ${error?.message ?? error}`;
+  } finally {
+    button.disabled = false;
+  }
+});
 
 document.querySelectorAll("[data-preset]").forEach((tab) =>
   tab.addEventListener("click", async () => {
@@ -211,6 +259,9 @@ async function loadActiveTabState() {
 }
 
 function runAnalyze(refresh) {
+  // Configuration is done for now; give the space to the entity list, which is
+  // what the reader is about to be using.
+  el("settings").open = false;
   el("btn-analyze").disabled = true;
   el("btn-refresh").disabled = true;
   el("status").textContent = refresh ? "re-reading the page…" : "reading the page…";
@@ -261,3 +312,9 @@ chrome.tabs.onUpdated.addListener((_id, changeInfo, tab) => {
 
 syncSettingsForm();
 loadActiveTabState();
+
+// A catalogue from an earlier test in this worker's lifetime, if there is one.
+// No network here — that only happens when the reader presses Test.
+send({ type: "provider.models" })
+  .then((models) => models?.length && renderModelOptions(models))
+  .catch(() => {});

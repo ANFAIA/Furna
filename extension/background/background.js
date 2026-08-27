@@ -28,6 +28,7 @@ import { Settings } from "./settings.js";
 import { Store } from "../shared/runtime/store.js";
 import { createEngine } from "./engine.js";
 import { setActionIcon } from "./icons.js";
+import { testProvider } from "./models.js";
 
 let statePromise = null;
 function state() {
@@ -44,6 +45,11 @@ function state() {
 /** tabId -> the last thing `analyze-page` produced for it. Best-effort only —
  *  see the module comment. */
 const tabState = new Map();
+
+/** The provider's model list from the last successful test. Same best-effort
+ *  lifetime as `tabState`: losing it costs one button press, never a wrong
+ *  answer. */
+let catalogue = [];
 
 /** An entry is only true while the content script that did the marking is
  *  still on the page. A navigation replaces that content script with a fresh
@@ -95,6 +101,27 @@ const ONE_SHOT = {
     const result = await (await state()).engine.clearCache(message.doc);
     if (tabState.get(message.tabId)?.docHash === message.doc) tabState.delete(message.tabId);
     return result;
+  },
+  /** Test the provider and fetch its catalogue. Runs here, not in the panel:
+   *  the key lives on this side, and every network call belongs here. */
+  async "provider.test"() {
+    const { settings } = await state();
+    const config = settings.roleConfig("extractor"); // both roles share a provider
+    const result = await testProvider({
+      baseUrl: config.baseUrl,
+      apiKey: config.apiKey,
+      checkKey: settings.get("baseUrlPreset") === "openrouter",
+    });
+    if (result.models.length) catalogue = result.models;
+    return result;
+  },
+
+  /** The catalogue from the last successful test, if this worker still has
+   *  it. Deliberately not persisted: it is a convenience for the model
+   *  pickers, and a stale list of hundreds of models is worse than an empty
+   *  one the reader can refill with one click. */
+  async "provider.models"() {
+    return catalogue;
   },
   async "active-tab-state"() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });

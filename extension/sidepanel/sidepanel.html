@@ -16,8 +16,16 @@
       <span class="version" id="version"></span>
     </header>
 
-    <section class="block">
-      <p class="label">Inference</p>
+    <!-- `<details>` rather than a JS-driven panel: it collapses on its own, is
+         keyboard-reachable, and survives having no script at all. Pressing
+         "Analyze this page" closes it; a configuration problem forces it back
+         open, since nothing can run until that is fixed. -->
+    <details class="block settings" id="settings" open>
+      <summary class="label">
+        Inference
+        <span class="summary-note" id="settings-summary"></span>
+      </summary>
+
       <div class="tabs" role="tablist">
         <button class="seg" data-preset="openrouter">OpenRouter</button>
         <button class="seg" data-preset="custom">Custom URL</button>
@@ -31,6 +39,12 @@
         <span>Base URL</span>
         <input type="text" id="url" spellcheck="false" placeholder="http://localhost:1234/v1" />
       </label>
+
+      <!-- Only worth offering once there is something to test with; shown by
+           `syncSettingsForm` when the provider has what it needs. -->
+      <button class="ghost wide" id="btn-test" hidden>Test connection &amp; load models</button>
+      <p class="status" id="test-result"></p>
+
       <label class="field">
         <span>Extractor model</span>
         <input type="text" id="extractor" list="extractor-list" spellcheck="false" />
@@ -41,6 +55,7 @@
         <input type="text" id="expander" list="expander-list" spellcheck="false" />
         <datalist id="expander-list"></datalist>
       </label>
+
       <p class="hint">
         The key is stored only in this browser's extension storage and is sent only to the base URL
         above.
@@ -50,7 +65,7 @@
         <code>chrome-extension://…</code> — Ollama does by default; LM Studio has a setting for it.
       </p>
       <p class="warn" id="problem" hidden></p>
-    </section>
+    </details>
 
     <section class="block">
       <p class="label">This page</p>

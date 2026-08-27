@@ -20,6 +20,13 @@
       "runtimeArgs": ["-m", "http.server", "8788", "--directory", "web"],
       "port": 8788,
       "autoPort": false
+    },
+    {
+      "name": "furna-extension-panel",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8789", "--directory", "extension"],
+      "port": 8789,
+      "autoPort": false
     }
   ]
 }

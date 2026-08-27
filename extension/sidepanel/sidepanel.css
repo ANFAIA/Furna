@@ -53,6 +53,38 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* The collapsible Inference section. `summary` carries the same label styling
+   as the other section headings so collapsing does not make it look different
+   in kind from them — it is the same block, just foldable. */
+.settings > summary {
+  cursor: pointer;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
+  list-style: none;
+}
+.settings > summary::-webkit-details-marker { display: none; }
+.settings > summary::before {
+  content: "▸";
+  font-size: 0.9em;
+  transition: transform 0.12s;
+}
+.settings[open] > summary::before { transform: rotate(90deg); }
+.settings > summary:hover { color: var(--ink-soft); }
+
+.summary-note {
+  margin-left: auto;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--ink-faint);
+  font-size: 0.95em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wide { width: 100%; margin-top: 0.2em; }
+
 .block {
   padding: 0.8em 1em;
   border-bottom: 1px solid var(--rule);
