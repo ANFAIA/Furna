@@ -5,7 +5,7 @@
   "description": "Browser-only fork of Furna: agents, cache and viewer running entirely client-side.",
   "type": "module",
   "scripts": {
-    "test": "node --test tests/web/*.test.js"
+    "test": "node --test tests/web/*.test.js tests/extension/*.test.js"
   },
   "repository": {
     "type": "git",
