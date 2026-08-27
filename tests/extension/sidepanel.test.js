@@ -117,3 +117,24 @@ test("the panel's own hint about where the key goes names a field the reader can
   const hidesUrlField = /querySelector\(['"`]\[data-field="url"\]['"`]\)\.hidden\s*=\s*(?!false)/.test(js);
   assert.equal(hidesUrlField, false, "the Base URL field must stay visible for the security note above it to be checkable");
 });
+
+test("failures are written through the one helper that can mark them", () => {
+  // An error written straight into `textContent` lands in the status line's
+  // deliberately-faint grey — the same grey as "reading 3/4…" — so it reads as
+  // progress and the eye skips it. Routing every write through `setStatus`
+  // is what makes the highlight impossible to forget.
+  assert.doesNotMatch(
+    js,
+    /el\(["'`](status|test-result)["'`]\)\.textContent\s*=/,
+    "status lines must be written with setStatus(), not by assigning textContent",
+  );
+  assert.match(js, /function setStatus\(/);
+  assert.match(css, /\.status\.is-error/, "setStatus's error class needs a rule to apply");
+});
+
+test("an error message is never truncated by the panel's own styling", () => {
+  // Provider messages carry URLs and run long; `white-space: pre-wrap` is what
+  // stops the highlight box from clipping the remedy the reader needs.
+  const rule = css.match(/\.status\.is-error\s*\{([^}]*)\}/)?.[1] ?? "";
+  assert.match(rule, /white-space\s*:\s*pre-wrap/);
+});

@@ -169,6 +169,18 @@ body {
 .warn { margin: 0.5em 0 0; padding: 0.5em; border-radius: 6px; background: color-mix(in srgb, var(--warm) 14%, transparent); color: var(--warm); font-size: 0.85em; }
 .status { margin: 0.5em 0 0; font-size: 0.82em; color: var(--ink-faint); min-height: 1.2em; }
 
+/* A failure must not read like progress. The status line is deliberately faint
+   — it carries "reading 3/4…" most of the time — so an error written into it
+   in that same grey is something the eye skips over. This is the same
+   highlight `.warn` uses, so every failure in the panel looks like one thing. */
+.status.is-error {
+  padding: 0.5em;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--warm) 14%, transparent);
+  color: var(--warm);
+  white-space: pre-wrap; /* provider messages carry URLs and run long */
+}
+
 .row { display: flex; gap: 0.4em; }
 button { font: inherit; cursor: pointer; border-radius: 7px; }
 .primary { flex: 1; padding: 0.5em; background: var(--accent); border: none; color: #fff; font-weight: 560; }

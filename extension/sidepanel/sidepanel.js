@@ -126,6 +126,16 @@ function renderModelOptions(models, current = {}) {
   }
 }
 
+/** Write a status line, marking failures so they cannot be mistaken for
+ *  progress. Every write goes through here rather than assigning
+ *  `textContent` directly: nine call sites assigning it by hand is nine
+ *  chances to forget to clear a previous error's highlight. */
+function setStatus(id, text, { error = false } = {}) {
+  const node = el(id);
+  node.textContent = text;
+  node.classList.toggle("is-error", Boolean(error) && Boolean(text));
+}
+
 /** Show a failure to reach the background rather than rejecting into nowhere.
  *  The panel is a separate page from the service worker: if the worker
  *  errored on startup (a bad import, a syntax error), every `send()` here
@@ -195,13 +205,13 @@ function renderSettingsSummary(settings) {
 el("btn-test").addEventListener("click", async () => {
   const button = el("btn-test");
   button.disabled = true;
-  el("test-result").textContent = "testing…";
+  setStatus("test-result", "testing…");
   try {
     const result = await send({ type: "provider.test" });
-    el("test-result").textContent = result.message;
+    setStatus("test-result", result.message, { error: !result.ok });
     if (result.models?.length) renderModelOptions(result.models);
   } catch (error) {
-    el("test-result").textContent = `could not test: ${error?.message ?? error}`;
+    setStatus("test-result", `could not test: ${error?.message ?? error}`, { error: true });
   } finally {
     button.disabled = false;
   }
@@ -313,11 +323,11 @@ async function loadActiveTabState() {
   if (known) {
     currentDocHash = known.docHash;
     currentEntities = known.entities || [];
-    el("status").textContent = `${currentEntities.length} entities · already analyzed`;
+    setStatus("status", `${currentEntities.length} entities · already analyzed`);
   } else {
     currentDocHash = null;
     currentEntities = [];
-    el("status").textContent = "";
+    setStatus("status", "");
   }
   renderEntityList();
 }
@@ -328,7 +338,7 @@ function runAnalyze(refresh) {
   el("settings").open = false;
   el("btn-analyze").disabled = true;
   el("btn-refresh").disabled = true;
-  el("status").textContent = refresh ? "re-reading the page…" : "reading the page…";
+  setStatus("status", refresh ? "re-reading the page…" : "reading the page…");
   currentEntities = [];
   renderEntityList();
 
@@ -338,16 +348,16 @@ function runAnalyze(refresh) {
     if (kind === "chunk") {
       const seen = new Set(currentEntities.map((e) => e.id));
       currentEntities.push(...(data.entities || []).filter((e) => !seen.has(e.id)));
-      el("status").textContent = `reading ${data.done}/${data.total} · ${currentEntities.length} entities so far`;
+      setStatus("status", `reading ${data.done}/${data.total} · ${currentEntities.length} entities so far`);
       renderEntityList();
     } else if (kind === "result") {
       currentDocHash = data.doc_hash;
       currentEntities = data.entities || [];
       const lost = data.failed_chunks ? ` · ${data.failed_chunks}/${data.total_chunks} sections unread` : "";
-      el("status").textContent = `${currentEntities.length} entities${data.cached ? " · from cache" : ""}${lost}`;
+      setStatus("status", `${currentEntities.length} entities${data.cached ? " · from cache" : ""}${lost}`);
       renderEntityList();
     } else if (kind === "error") {
-      el("status").textContent = `error: ${data.message}`;
+      setStatus("status", data.message, { error: true });
     }
   });
   // Back through the single gate, not a blind re-enable: whatever disabled

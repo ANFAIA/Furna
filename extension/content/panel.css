@@ -133,8 +133,22 @@
   .furna-chip:hover { border-color: #a996ff; color: #a996ff; }
 }
 
-.furna-warn { color: #c2703a; font-size: 0.85em; margin: 0.6em 0 0; }
-@media (prefers-color-scheme: dark) { .furna-warn { color: #e2a06a; } }
+/* Highlighted, not just tinted: a panel that failed sits in the middle of the
+   page's own prose, and warm-coloured text alone reads as part of it. Same
+   treatment as the side panel's error line, so a failure looks like one thing
+   wherever it surfaces. */
+.furna-warn {
+  color: #c2703a;
+  font-size: 0.85em;
+  margin: 0.6em 0 0;
+  padding: 0.5em 0.6em;
+  border-radius: 6px;
+  background: color-mix(in srgb, #c2703a 14%, transparent);
+  white-space: pre-wrap; /* provider messages carry URLs and run long */
+}
+@media (prefers-color-scheme: dark) {
+  .furna-warn { color: #e2a06a; background: color-mix(in srgb, #e2a06a 16%, transparent); }
+}
 
 .furna-loader {
   display: flex;
