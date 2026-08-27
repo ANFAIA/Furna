@@ -125,6 +125,34 @@ body {
    Any rule that sets `display` on something later hidden needs this. */
 [hidden] { display: none !important; }
 .field span { display: block; margin-bottom: 0.2em; color: var(--ink-soft); }
+/* Selects share the fields' look. `select` needs its own reset because the
+   platform styles it heavily, and 417 options make the dropdown tall — the
+   free group sits first so the common choice is at the top of it. */
+.field select {
+  width: 100%;
+  padding: 0.4em 0.5em;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+}
+.field select:focus { outline: none; border-color: var(--accent); }
+.field select optgroup { color: var(--ink-faint); font-style: normal; }
+.field select option { color: var(--ink); }
+
+.custom-model {
+  width: 100%;
+  margin: -0.3em 0 0.55em;
+  padding: 0.4em 0.5em;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.85em;
+}
+
 .field input, #filter {
   width: 100%;
   padding: 0.4em 0.5em;

@@ -108,8 +108,10 @@ export async function testProvider({ baseUrl, apiKey, checkKey = false, fetchImp
     return { ok: true, models, message: `Reachable — ${models.length} models. Key not verified.` };
   }
 
-  const info = await readJson(keyResponse);
-  const label = info?.data?.label ? ` (${info.data.label})` : "";
+  // The key's label is NOT echoed back: OpenRouter defaults it to a truncated
+  // form of the key itself, so printing it puts key material on screen — and
+  // from there into screenshots and pasted bug reports. Nothing about the
+  // count needs it.
   const free = models.filter((model) => model.free).length;
-  return { ok: true, models, message: `Key works${label} — ${models.length} models, ${free} free.` };
+  return { ok: true, models, message: `Key works — ${models.length} models, ${free} free.` };
 }

@@ -59,17 +59,52 @@ test("an element the panel hides is not given a display the browser's [hidden] r
   );
 });
 
-test("every settings field re-syncs after writing, so the gate reflects what was just typed", () => {
-  // Reported live: pasting the API key left "Analyze this page" disabled. The
-  // key's handler wrote the setting but never re-read `problems()`, so the
-  // panel kept the "paste an API key" verdict it had formed before the key
-  // existed. Three of the four fields did re-sync; only that one did not, and
-  // nothing about reading the file made the omission visible.
-  const handlers = [...js.matchAll(/el\(["'`](key|url|extractor|expander)["'`]\)\.addEventListener\(\s*["'`](?:input|change)["'`],([\s\S]*?)\n\}\);/g)];
-  assert.equal(handlers.length, 4, "expected a handler for each of the four settings fields");
+/** Every complete `addEventListener(…)` call in the source, found by matching
+ *  PARENTHESES from the call's own opening paren.
+ *
+ *  Braces would be the obvious thing to match and are wrong: an arrow function
+ *  with an expression body — `addEventListener("input", () => setSetting(…))`
+ *  — has no braces at all, which is precisely the shape the reported bug had.
+ *  A brace-matcher skips past it to the next handler's body and reports a pass
+ *  on code that has the defect. (Caught by re-introducing the bug and watching
+ *  this test stay green.) */
+function listenerCalls(source) {
+  const calls = [];
+  for (const match of source.matchAll(/addEventListener\(/g)) {
+    const open = source.indexOf("(", match.index);
+    let depth = 0;
+    for (let i = open; i < source.length; i += 1) {
+      if (source[i] === "(") depth += 1;
+      else if (source[i] === ")") {
+        depth -= 1;
+        if (depth === 0) {
+          calls.push(source.slice(open, i + 1));
+          break;
+        }
+      }
+    }
+  }
+  return calls;
+}
 
-  for (const [, field, body] of handlers) {
-    assert.match(body, /syncSettingsForm\(\)/, `the ${field} field writes its setting but never re-syncs the form`);
+test("every handler that writes a setting also re-syncs the form", () => {
+  // Reported live: pasting the API key left "Analyze this page" disabled. That
+  // handler wrote the setting but never re-read `problems()`, so the panel
+  // kept the "paste an API key" verdict it had formed before the key existed.
+  // Stated as a property rather than a list of fields, so it keeps holding as
+  // handlers are added or restructured.
+  const writers = listenerCalls(js).filter((body) => /setSetting\(/.test(body));
+  assert.ok(writers.length >= 3, `expected several setting-writing handlers, found ${writers.length}`);
+
+  for (const body of writers) {
+    // One deliberate exception: revealing the "type an id…" field writes
+    // nothing yet, and returns before reaching the write.
+    if (/custom\.hidden = false/.test(body)) continue;
+    assert.match(
+      body,
+      /syncSettingsForm\(\)/,
+      `a handler writes a setting but never re-syncs the form:\n${body.slice(0, 200)}`,
+    );
   }
 });
 

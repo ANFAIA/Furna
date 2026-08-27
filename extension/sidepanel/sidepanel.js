@@ -67,26 +67,64 @@ async function setSetting(key, value) {
   return reply;
 }
 
-/** Fill both model pickers. Free models come first — that is the list a reader
- *  without a budget needs at the top — and each option's label carries what
- *  distinguishes it, since the ids alone are long and nearly identical. */
-function renderModelOptions(models) {
-  for (const listId of ["extractor-list", "expander-list"]) {
-    const list = el(listId);
-    list.innerHTML = "";
-    for (const model of models) {
-      const option = document.createElement("option");
-      option.value = model.id;
-      const context = model.contextLength ? `${Math.round(model.contextLength / 1000)}k ctx` : "";
-      option.label = [model.free ? "free" : null, context].filter(Boolean).join(" · ");
-      list.append(option);
-    }
-  }
+/** The value a select carries when the reader wants to type an id by hand. */
+const CUSTOM = "__custom__";
+
+/** Every model the provider offers, in both pickers. Free first and in their
+ *  own group: with 417 models and 20 free, the free ones are the list most
+ *  readers are actually choosing from, and burying them alphabetically among
+ *  the rest makes them unfindable.
+ *
+ *  `models` may be empty (nothing fetched yet) — the currently-configured id
+ *  is always added regardless, so a select never fails to show what is set. */
+let catalogue = [];
+
+function optionFor(model) {
+  const option = document.createElement("option");
+  option.value = model.id;
+  const context = model.contextLength ? ` · ${Math.round(model.contextLength / 1000)}k ctx` : "";
+  option.textContent = `${model.id}${context}`;
+  return option;
 }
 
-// Until a catalogue is fetched, the built-in shortlist is what the pickers
-// offer — better than an empty dropdown on a fresh install.
-renderModelOptions(PRESET_MODELS.openrouter.map((id) => ({ id, free: id.endsWith(":free"), contextLength: null })));
+function renderModelOptions(models, current = {}) {
+  catalogue = models;
+  for (const role of ["extractor", "expander"]) {
+    const select = el(role);
+    const selected = current[role] ?? select.value;
+    select.innerHTML = "";
+
+    const free = models.filter((model) => model.free);
+    const paid = models.filter((model) => !model.free);
+    for (const [label, group] of [
+      ["Free", free],
+      ["Paid", paid],
+    ]) {
+      if (!group.length) continue;
+      const optgroup = document.createElement("optgroup");
+      optgroup.label = `${label} (${group.length})`;
+      for (const model of group) optgroup.append(optionFor(model));
+      select.append(optgroup);
+    }
+
+    // An id the provider did not advertise — typed by hand, or left over from
+    // a different provider — must still be visible as the current setting
+    // rather than silently replaced by whatever happens to be first.
+    if (selected && selected !== CUSTOM && !models.some((model) => model.id === selected)) {
+      const group = document.createElement("optgroup");
+      group.label = "Set here";
+      group.append(optionFor({ id: selected }));
+      select.prepend(group);
+    }
+
+    const custom = document.createElement("option");
+    custom.value = CUSTOM;
+    custom.textContent = "Type an id…";
+    select.append(custom);
+
+    if (selected) select.value = selected;
+  }
+}
 
 /** Show a failure to reach the background rather than rejecting into nowhere.
  *  The panel is a separate page from the service worker: if the worker
@@ -126,8 +164,14 @@ async function syncSettingsForm() {
 
   if (document.activeElement !== el("key")) el("key").value = settings.apiKey || "";
   if (document.activeElement !== el("url")) el("url").value = settings[baseUrlKeyFor(preset)] || "";
-  if (document.activeElement !== el("extractor")) el("extractor").value = settings[modelKeyFor(preset, "extractor")] || "";
-  if (document.activeElement !== el("expander")) el("expander").value = settings[modelKeyFor(preset, "expander")] || "";
+
+  // Rebuilt rather than just assigned: switching preset changes which model is
+  // configured, and that id may not be in the catalogue at all (a local
+  // server's, say) — `renderModelOptions` guarantees it is present either way.
+  renderModelOptions(catalogue, {
+    extractor: settings[modelKeyFor(preset, "extractor")] || "",
+    expander: settings[modelKeyFor(preset, "expander")] || "",
+  });
 
   // Testing needs something to test with: a key for OpenRouter, a URL for a
   // custom server. Offering the button before then is offering a guaranteed
@@ -185,16 +229,36 @@ el("url").addEventListener("change", async () => {
   await setSetting(baseUrlKeyFor(settings.baseUrlPreset), el("url").value.trim());
   syncSettingsForm();
 });
-el("extractor").addEventListener("change", async () => {
-  const settings = await send({ type: "settings.snapshot" });
-  await setSetting(modelKeyFor(settings.baseUrlPreset, "extractor"), el("extractor").value.trim());
-  syncSettingsForm();
-});
-el("expander").addEventListener("change", async () => {
-  const settings = await send({ type: "settings.snapshot" });
-  await setSetting(modelKeyFor(settings.baseUrlPreset, "expander"), el("expander").value.trim());
-  syncSettingsForm();
-});
+// Both model pickers behave identically, so they are wired identically rather
+// than twice by hand — the two used to drift apart exactly this way.
+for (const role of ["extractor", "expander"]) {
+  const select = el(role);
+  const custom = el(`${role}-custom`);
+
+  select.addEventListener("change", async () => {
+    if (select.value === CUSTOM) {
+      // Reveal the free-text field rather than storing the sentinel; nothing
+      // is written until the reader actually types an id.
+      custom.hidden = false;
+      custom.value = "";
+      custom.focus();
+      return;
+    }
+    custom.hidden = true;
+    const settings = await send({ type: "settings.snapshot" });
+    await setSetting(modelKeyFor(settings.baseUrlPreset, role), select.value);
+    syncSettingsForm();
+  });
+
+  custom.addEventListener("change", async () => {
+    const id = custom.value.trim();
+    if (!id) return;
+    const settings = await send({ type: "settings.snapshot" });
+    await setSetting(modelKeyFor(settings.baseUrlPreset, role), id);
+    custom.hidden = true;
+    syncSettingsForm();
+  });
+}
 
 // --------------------------------------------------------------------------- //
 // This page: analyze / refresh / clear
@@ -314,7 +378,15 @@ syncSettingsForm();
 loadActiveTabState();
 
 // A catalogue from an earlier test in this worker's lifetime, if there is one.
-// No network here — that only happens when the reader presses Test.
+// No network here — that only happens when the reader presses Test. Falling
+// back to the built-in shortlist means a fresh install offers something rather
+// than an empty picker.
 send({ type: "provider.models" })
-  .then((models) => models?.length && renderModelOptions(models))
+  .then((models) => {
+    const known = models?.length
+      ? models
+      : PRESET_MODELS.openrouter.map((id) => ({ id, free: id.endsWith(":free"), contextLength: null }));
+    renderModelOptions(known);
+    return syncSettingsForm(); // re-select whatever is actually configured
+  })
   .catch(() => {});

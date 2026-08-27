@@ -45,16 +45,24 @@
       <button class="ghost wide" id="btn-test" hidden>Test connection &amp; load models</button>
       <p class="status" id="test-result"></p>
 
+      <!-- `<select>`, not `<input list=datalist>`: a datalist filters its
+           suggestions by whatever is already typed in the field, so with a
+           model id already set it showed only the options containing that
+           string — 417 fetched models, and the reader could see about one of
+           them. A select shows the whole list, groups free models at the top,
+           and supports type-to-jump. The text input below is the escape hatch
+           for an id the provider did not advertise. -->
       <label class="field">
         <span>Extractor model</span>
-        <input type="text" id="extractor" list="extractor-list" spellcheck="false" />
-        <datalist id="extractor-list"></datalist>
+        <select id="extractor"></select>
       </label>
+      <input type="text" id="extractor-custom" class="custom-model" spellcheck="false" placeholder="model id" hidden />
+
       <label class="field">
         <span>Expander model</span>
-        <input type="text" id="expander" list="expander-list" spellcheck="false" />
-        <datalist id="expander-list"></datalist>
+        <select id="expander"></select>
       </label>
+      <input type="text" id="expander-custom" class="custom-model" spellcheck="false" placeholder="model id" hidden />
 
       <p class="hint">
         The key is stored only in this browser's extension storage and is sent only to the base URL

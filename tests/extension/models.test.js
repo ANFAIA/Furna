@@ -100,8 +100,22 @@ test("a good key is confirmed, with the free count the reader cares about", asyn
     fetchImpl: async (url) => (url.endsWith("/key") ? ok({ data: { label: "furna" } }) : ok(catalogue())),
   });
   assert.equal(result.ok, true);
-  assert.match(result.message, /Key works \(furna\)/);
+  assert.match(result.message, /Key works/);
   assert.match(result.message, /2 free/);
+});
+
+test("the key's label is never echoed back into the UI", async () => {
+  // OpenRouter defaults a key's label to a TRUNCATED FORM OF THE KEY, so
+  // printing it puts key material on screen and from there into screenshots
+  // and pasted bug reports — which is exactly how it escaped once.
+  const result = await testProvider({
+    baseUrl: "https://openrouter.ai/api/v1",
+    apiKey: "sk-or-v1-secret",
+    checkKey: true,
+    fetchImpl: async (url) =>
+      url.endsWith("/key") ? ok({ data: { label: "sk-or-v1-67f...310" } }) : ok(catalogue()),
+  });
+  assert.doesNotMatch(result.message, /sk-or/);
 });
 
 test("a server with no /key endpoint is not claimed to have a working key", async () => {

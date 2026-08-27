@@ -171,6 +171,7 @@ function closePanel(key) {
   }
   entry.wrapper.remove();
   state.panels.delete(key);
+  entry.onClose?.(); // a selection panel uses this to drop its highlight
   const [entityId, instance] = key.split("#");
   const mark = document.querySelector(
     `mark.furna-mark[data-entity="${CSS.escape(entityId)}"][data-instance="${CSS.escape(instance)}"]`,
@@ -187,7 +188,7 @@ async function toggleInstance(mark) {
   const entity = state.entities.get(mark.dataset.entity);
   if (!entity) return;
   mark.dataset.furnaOpen = "1";
-  await mountPanel(mark, key, entity);
+  await mountPanel({ anchor: anchorFor(mark), key, header: entity, sentence: sentenceAround(mark) });
 }
 
 function sentenceAround(mark) {
@@ -196,8 +197,10 @@ function sentenceAround(mark) {
   return text.length <= 320 ? text : text.slice(0, 320);
 }
 
-async function mountPanel(mark, key, entity) {
-  const anchor = anchorFor(mark);
+/** Opens the hole in the text. Anchored to a block element rather than to a
+ *  mark, so a highlighted fragment opens exactly the same way a clicked entity
+ *  does — the only differences are the heading and the mode sent to the agent. */
+async function mountPanel({ anchor, key, header, sentence, mode = "entity", onClose }) {
   const wrapper = document.createElement("div");
   wrapper.className = "furna-panel-host";
   anchor.after(wrapper);
@@ -208,13 +211,13 @@ async function mountPanel(mark, key, entity) {
   shadow.appendChild(style);
 
   const root = document.createElement("div");
-  root.className = "furna-panel";
+  root.className = `furna-panel${mode === "selection" ? " is-selection" : ""}`;
   root.innerHTML = `
     <div class="furna-panel-head">
-      <span class="furna-panel-kind">${escapeHtml(entity.kind || "concept")}</span>
-      <h4 class="furna-panel-title">${escapeHtml(entity.canonical)}</h4>
+      <span class="furna-panel-kind">${escapeHtml(mode === "selection" ? "selection" : header.kind || "concept")}</span>
+      <h4 class="furna-panel-title">${escapeHtml(truncate(header.canonical, 60))}</h4>
       <span class="furna-panel-badge" data-role="badge"></span>
-      <button class="furna-panel-close" title="Close (or click the mark again)">×</button>
+      <button class="furna-panel-close" title="Close">×</button>
     </div>
     <p class="furna-thinking" data-role="thinking" hidden><span></span></p>
     <div class="furna-panel-body" data-role="body">
@@ -223,10 +226,12 @@ async function mountPanel(mark, key, entity) {
   shadow.appendChild(root);
   root.querySelector(".furna-panel-close").addEventListener("click", () => closePanel(key));
 
-  const entry = { wrapper, shadow, port: null };
+  const entry = { wrapper, shadow, port: null, onClose };
   state.panels.set(key, entry);
-  await streamExpansion(shadow, entity, sentenceAround(mark), entry);
+  await streamExpansion(shadow, header, sentence, entry, mode);
 }
+
+const truncate = (text, max) => (text.length <= max ? text : `${text.slice(0, max - 1)}…`);
 
 /** Turns a chrome.runtime.Port's onMessage stream into an async iterable of
  *  `{kind, data}` — the same shape `readSse` produces from an SSE `Response`
@@ -328,7 +333,7 @@ function renderPanelError(shadow, message, retry) {
   body.append(warn, again);
 }
 
-async function streamExpansion(shadow, entity, sentence, entry) {
+async function streamExpansion(shadow, entity, sentence, entry, mode = "entity") {
   const body = shadow.querySelector('[data-role="body"]');
   const port = chrome.runtime.connect({ name: "expand" });
   entry.port = port; // so closePanel can disconnect a stream still in flight
@@ -339,7 +344,7 @@ async function streamExpansion(shadow, entity, sentence, entry) {
     kind: entity.kind,
     surfaceForms: entity.surface_forms || [],
     sentence,
-    mode: "entity",
+    mode,
     verbosity: "brief",
     path: [],
   });
@@ -357,12 +362,12 @@ async function streamExpansion(shadow, entity, sentence, entry) {
         renderExpansion(shadow, data.expansion, data.cached);
         return;
       } else if (kind === "error") {
-        renderPanelError(shadow, data.message, () => streamExpansion(shadow, entity, sentence, entry));
+        renderPanelError(shadow, data.message, () => streamExpansion(shadow, entity, sentence, entry, mode));
         return;
       }
     }
   } catch (error) {
-    renderPanelError(shadow, String(error?.message ?? error), () => streamExpansion(shadow, entity, sentence, entry));
+    renderPanelError(shadow, String(error?.message ?? error), () => streamExpansion(shadow, entity, sentence, entry, mode));
   }
 }
 
