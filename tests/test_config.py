@@ -26,7 +26,9 @@ def test_llm_provider_switches_every_role(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "anthropic")
     specs = config.all_specs()
     assert {spec.provider for spec in specs.values()} == {"anthropic"}
-    assert specs["expander"].model == "claude-sonnet-5"
+    # The constant, not a literal: this test is about LLM_PROVIDER reaching
+    # every role, not about which Anthropic model is currently the default.
+    assert specs["expander"].model == config.DEFAULT_ANTHROPIC_MODEL
     assert specs["expander"].base_url is None
 
 

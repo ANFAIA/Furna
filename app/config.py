@@ -5,7 +5,7 @@ useful hybrid — cheap local extraction, strong remote synthesis — is one lin
 env config:
 
     EXTRACTOR_MODEL=local:nvidia/nemotron-3-nano-4b
-    EXPANDER_MODEL=anthropic:claude-sonnet-5
+    EXPANDER_MODEL=anthropic:claude-haiku-4-5
 
 A bare model name uses ``LLM_PROVIDER`` (default ``local``). Three providers are
 supported: ``local`` (any OpenAI-compatible server), ``anthropic``, and
@@ -24,7 +24,11 @@ from langchain_core.language_models.chat_models import BaseChatModel
 DEFAULT_PROVIDER = "local"
 DEFAULT_LOCAL_MODEL = "nvidia/nemotron-3-nano-4b"
 DEFAULT_LOCAL_BASE_URL = "http://localhost:1234/v1"  # LM Studio; Ollama uses :11434/v1
-DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5"
+# Haiku is the right default for this workload, not a cost compromise:
+# extraction runs once per chunk of a few paragraphs and expansion once per
+# entity the reader clicks, so latency is what the reader feels. The id carries
+# no date suffix — `claude-haiku-4-5` is the complete string.
+DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5"
 DEFAULT_OPENROUTER_MODEL = "inclusionai/ling-3.0-flash:free"
 DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 

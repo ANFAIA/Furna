@@ -100,7 +100,7 @@ OPENROUTER_MODEL=inclusionai/ling-3.0-flash:free
 
 # Hybrid: cheap local extraction, strong remote synthesis
 EXTRACTOR_MODEL=local:nvidia/nemotron-3-nano-4b
-EXPANDER_MODEL=anthropic:claude-sonnet-5
+EXPANDER_MODEL=anthropic:claude-haiku-4-5
 
 # The two roles pull in different directions. Extraction runs once per chunk of
 # a few paragraphs, so it wants speed; expansion runs once per entity and can
