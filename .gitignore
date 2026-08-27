@@ -11,3 +11,12 @@ wheels/
 
 .cache/
 .env
+
+# Chrome "Pack extension" output. The .pem is the PRIVATE SIGNING KEY: anyone
+# who has it can publish an update Chrome accepts as this same extension id.
+# It must never be committed.
+*.pem
+*.crx
+
+# Node dependencies for the browser/extension test suites.
+node_modules/
