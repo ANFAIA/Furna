@@ -11,6 +11,11 @@ import { whyNotAnalyzable } from "./page-support.js";
 
 const el = (id) => document.getElementById(id);
 
+// Which build is loaded, visible at a glance. Chrome keeps serving the
+// previous one until the extension is reloaded, and a stale build reporting a
+// fixed bug is indistinguishable from an unfixed one.
+el("version").textContent = `v${chrome.runtime.getManifest().version}`;
+
 /** Analyze is gated on two independent things: whether the provider is
  *  configured, and whether Chrome will let a content script run on this tab at
  *  all. They are discovered by different code paths at different times, so

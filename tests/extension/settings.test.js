@@ -17,7 +17,12 @@ import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 
 beforeEach(() => {
-  globalThis.chrome = { storage: { local: new FakeChromeStorage() } };
+  globalThis.chrome = {
+    storage: { local: new FakeChromeStorage() },
+    // Real in every extension context; `roleConfig` uses it for the
+    // HTTP-Referer OpenRouter attributes usage to.
+    runtime: { getURL: (path) => `chrome-extension://abcdefghijklmnop/${path}` },
+  };
 });
 
 async function freshSettings() {
@@ -143,4 +148,20 @@ test("set reports whether the value actually reached storage", async () => {
     throw new Error("QUOTA_BYTES quota exceeded");
   };
   assert.equal(await settings.set("apiKey", "sk-or-other"), false);
+});
+
+test("OpenRouter attribution headers carry the real extension origin, not a placeholder", async () => {
+  // `chrome-extension://furna` shipped for a while: it looks like an extension
+  // id and is not one. Sending an invented identifier to a third party is not
+  // worth leaving in just because the header happens to be optional.
+  const settings = await freshSettings();
+  const { extraHeaders } = settings.roleConfig("extractor");
+  assert.match(extraHeaders["HTTP-Referer"], /^chrome-extension:\/\//);
+  assert.doesNotMatch(extraHeaders["HTTP-Referer"], /furna/);
+});
+
+test("a Custom URL server gets no OpenRouter-specific headers", async () => {
+  const settings = await freshSettings();
+  settings.set("baseUrlPreset", "custom");
+  assert.deepEqual(settings.roleConfig("extractor").extraHeaders, {});
 });

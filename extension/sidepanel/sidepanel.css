@@ -45,6 +45,14 @@ body {
   border-bottom: 1px solid var(--rule);
 }
 
+.version {
+  margin-left: auto;
+  font-weight: 400;
+  font-size: 0.78em;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
 .block {
   padding: 0.8em 1em;
   border-bottom: 1px solid var(--rule);

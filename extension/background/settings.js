@@ -161,9 +161,13 @@ export class Settings {
       model,
       label: `${this.#state.baseUrlPreset}:${model}`,
       maxTokens: 4000,
+      // OpenRouter reads these for attribution. `chrome-extension://furna` was
+      // a placeholder that looks like an id and is not one — sending an
+      // invented identifier to a third party is not something to leave in
+      // because it happens to be ignored. This is the real origin.
       extraHeaders:
         this.#state.baseUrlPreset === "openrouter"
-          ? { "HTTP-Referer": "chrome-extension://furna", "X-Title": "Furna (extension)" }
+          ? { "HTTP-Referer": chrome.runtime.getURL(""), "X-Title": "Furna" }
           : {},
     };
   }

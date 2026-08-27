@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Furna",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Mark and expand what you're reading, on any page — your own OpenRouter key or a local server, settings and the entity list in the side panel.",
   "action": {},
   "background": {

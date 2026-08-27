@@ -9,6 +9,11 @@
     <header class="brand">
       <img src="../icons/furna.svg" alt="" width="18" height="18" />
       <span>Furna</span>
+      <!-- Which build is actually loaded. Chrome keeps running the previous
+           one until the extension is reloaded, and without this there is no
+           way to tell from the panel whether a reload took — which cost a
+           whole round of "it still says the old error". -->
+      <span class="version" id="version"></span>
     </header>
 
     <section class="block">
