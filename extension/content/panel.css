@@ -7,6 +7,12 @@
 
 :host {
   all: initial; /* the host page's inherited font/color/line-height stop here */
+  /* `all: initial` resets `display` too, and its INITIAL value is `inline` —
+     not the `block` a <div> gets from the UA stylesheet. Without this the
+     panel is a block box inside an inline host, which browsers render via
+     anonymous boxes: the panel loses its own width and its margins stop
+     behaving. Restore it explicitly. */
+  display: block;
 }
 
 * { box-sizing: border-box; }

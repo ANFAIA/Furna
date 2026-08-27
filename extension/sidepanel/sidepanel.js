@@ -33,8 +33,27 @@ for (const model of PRESET_MODELS.openrouter) {
   }
 }
 
+/** Show a failure to reach the background rather than rejecting into nowhere.
+ *  The panel is a separate page from the service worker: if the worker
+ *  errored on startup (a bad import, a syntax error), every `send()` here
+ *  rejects, and without this the panel just sits there looking idle with the
+ *  real reason only visible in a devtools console the reader will not open. */
+function reportBroken(error) {
+  el("problem").hidden = false;
+  el("problem").textContent = `Furna's background could not be reached: ${error?.message ?? error}`;
+  el("btn-analyze").disabled = true;
+}
+
 async function syncSettingsForm() {
-  const settings = await send({ type: "settings.snapshot" });
+  let settings;
+  let problems;
+  try {
+    settings = await send({ type: "settings.snapshot" });
+    problems = await send({ type: "settings.problems" });
+  } catch (error) {
+    reportBroken(error);
+    return;
+  }
   const preset = settings.baseUrlPreset;
 
   document.querySelectorAll("[data-preset]").forEach((tab) => tab.classList.toggle("is-on", tab.dataset.preset === preset));
@@ -46,7 +65,6 @@ async function syncSettingsForm() {
   if (document.activeElement !== el("extractor")) el("extractor").value = settings[modelKeyFor(preset, "extractor")] || "";
   if (document.activeElement !== el("expander")) el("expander").value = settings[modelKeyFor(preset, "expander")] || "";
 
-  const problems = await send({ type: "settings.problems" });
   el("problem").hidden = problems.length === 0;
   el("problem").textContent = problems.join(" ");
   el("btn-analyze").disabled = problems.length > 0;

@@ -93,11 +93,23 @@ npm test
 ```
 
 Runs `tests/web/*.test.js` and `tests/extension/*.test.js` together. The
-extension suite covers: the copied runtime modules working with no `window`
-and only `indexedDB` in scope (the actual service-worker shape), the
-`chrome.storage`-backed Settings adapter (including the same migrations
-fixed on `browser-only`), the background engine's business logic against a
-fake OpenAI-compatible server, and the message/port router against a faked
-`chrome.runtime`/`chrome.tabs`. `background/icons.js` (OffscreenCanvas,
-`chrome.action`) and everything DOM-driven in `content/content.js` and
-`sidepanel/sidepanel.js` are not — see the smoke test above for those.
+extension suite covers:
+
+- the copied runtime modules working with no `window` and only `indexedDB` in
+  scope — the actual service-worker shape, not just "the same code elsewhere";
+- the `chrome.storage`-backed Settings adapter, including the same migrations
+  fixed on `browser-only`;
+- the background engine's business logic against a fake OpenAI-compatible
+  server (streaming, cache hits, the expand race guard);
+- the message/port router against a faked `chrome.runtime`/`chrome.tabs`,
+  including a mid-stream disconnect and per-tab state invalidation;
+- **manifest integrity** — every declared path exists, the background is a
+  module and the content scripts are not, everything a content script fetches
+  is web-accessible, and nothing is exposed to every website that does not
+  have to be. A missing file or a wrong `web_accessible_resources` entry
+  otherwise fails only when Chrome loads the extension, in a corner of
+  `chrome://extensions` that is easy to miss.
+
+Not covered: `background/icons.js` (OffscreenCanvas, `chrome.action`) and
+everything DOM-driven in `content/content.js` and `sidepanel/sidepanel.js` —
+see the smoke test above, which is the honest stand-in for those.

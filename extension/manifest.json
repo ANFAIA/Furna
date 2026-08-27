@@ -15,12 +15,13 @@
     {
       "matches": ["<all_urls>"],
       "js": ["content/markdown.js", "content/content.js"],
+      "css": ["content/marks.css"],
       "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["content/marks.css", "content/panel.css", "icons/furna.svg"],
+      "resources": ["content/panel.css"],
       "matches": ["<all_urls>"]
     }
   ],

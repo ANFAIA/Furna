@@ -45,6 +45,20 @@ function state() {
  *  see the module comment. */
 const tabState = new Map();
 
+/** An entry is only true while the content script that did the marking is
+ *  still on the page. A navigation replaces that content script with a fresh
+ *  one holding no marks, so an entry that survives it makes the side panel
+ *  claim "already analyzed" over a page with nothing marked, and every entity
+ *  row a dead control. Dropping it on `loading` (fired before the new
+ *  document commits) degrades to "click Analyze", which is the truth.
+ *
+ *  `onRemoved` is the plain leak: without it a long-lived worker accumulates
+ *  an entry per tab the user ever analyzed and closed. */
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status === "loading" || changeInfo.url) tabState.delete(tabId);
+});
+chrome.tabs.onRemoved.addListener((tabId) => tabState.delete(tabId));
+
 chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true }).catch(() => {});
   setActionIcon().catch(() => {});

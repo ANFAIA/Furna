@@ -19,18 +19,12 @@ const state = {
   panelCssPromise: null,
 };
 
-// --------------------------------------------------------------------------- //
-// Page-level mark styles — injected once per page load
-// --------------------------------------------------------------------------- //
-
-(function injectMarkStyles() {
-  if (document.getElementById("furna-mark-style")) return;
-  const link = document.createElement("link");
-  link.id = "furna-mark-style";
-  link.rel = "stylesheet";
-  link.href = chrome.runtime.getURL("content/marks.css");
-  (document.head || document.documentElement).appendChild(link);
-})();
+// Mark styles (content/marks.css) are declared in manifest.json's
+// content_scripts entry, not injected from here: Chrome then applies them
+// itself, at the right time, with no <link> element to insert and no need to
+// make the file web-accessible to every site on the internet. Only
+// panel.css still has to be fetched, because a shadow root inherits no
+// stylesheet — including a manifest-injected one.
 
 function panelCss() {
   if (!state.panelCssPromise) {
@@ -365,7 +359,13 @@ async function streamExpansion(shadow, entity, sentence, entry) {
 document.addEventListener("click", (event) => {
   const mark = event.target.closest?.("mark.furna-mark");
   if (!mark) return;
+  // A mark can land inside a link, a button, or anything else the page has
+  // its own handler on — and marking a word must never also activate what it
+  // was sitting in. preventDefault stops a link navigating; stopPropagation
+  // stops the page's own click handlers from treating this as a click on
+  // their element.
   event.preventDefault();
+  event.stopPropagation();
   toggleInstance(mark);
 });
 
@@ -373,6 +373,7 @@ document.addEventListener("keydown", (event) => {
   const mark = event.target.closest?.("mark.furna-mark");
   if (!mark || (event.key !== "Enter" && event.key !== " ")) return;
   event.preventDefault();
+  event.stopPropagation();
   toggleInstance(mark);
 });
 

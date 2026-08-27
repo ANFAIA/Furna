@@ -63,6 +63,8 @@ import { startFakeServer } from "../web/fake-server.js";
 let messageListener;
 let connectListener;
 let tabsSendMessageImpl;
+let tabsUpdatedListener;
+let tabsRemovedListener;
 
 /** Poll for the port to disconnect rather than sleep a fixed guess: a flat
  *  `setTimeout` is exactly the kind of test that passes locally and flakes
@@ -79,6 +81,8 @@ async function waitForDisconnect(port, { timeoutMs = 2000 } = {}) {
 beforeEach(() => {
   messageListener = undefined;
   connectListener = undefined;
+  tabsUpdatedListener = undefined;
+  tabsRemovedListener = undefined;
   tabsSendMessageImpl = async () => null;
   // `indexedDB` is a true global in a real service worker, no import needed;
   // Node has none, so a fresh fake stands in per test (Store's DB name is
@@ -97,6 +101,8 @@ beforeEach(() => {
     tabs: {
       query: async () => [{ id: 7 }],
       sendMessage: (tabId, message) => tabsSendMessageImpl(tabId, message),
+      onUpdated: { addListener: (fn) => (tabsUpdatedListener = fn) },
+      onRemoved: { addListener: (fn) => (tabsRemovedListener = fn) },
     },
     sidePanel: { setPanelBehavior: async () => {} },
     action: { setIcon: async () => {} },
@@ -232,6 +238,87 @@ test("analyze-page: the reader closing the panel mid-stream does not crash the f
     // it — but nothing THREW either, which is the actual point: the process
     // would otherwise have surfaced an unhandled rejection and failed this test.
     assert.ok(port.sent.length <= 1);
+  } finally {
+    await server.close();
+  }
+});
+
+/** Analyze the (single, id 7) fake tab and return the port, so a test can then
+ *  assert on what `active-tab-state` remembers about it. */
+async function analyzeFakeTab(server) {
+  await call({ type: "settings.set", key: "baseUrlPreset", value: "custom" });
+  await call({ type: "settings.set", key: "customBaseUrl", value: server.baseUrl });
+  await call({ type: "settings.set", key: "customExtractorModel", value: "m" });
+  await call({ type: "settings.set", key: "customExpanderModel", value: "m" });
+  tabsSendMessageImpl = async (_tabId, message) =>
+    message.type === "extract-text" ? { text: "A short document about A.", url: "https://example.com/a", title: "A" } : null;
+
+  const port = new FakePort("analyze-page");
+  connectListener(port);
+  port.emit({ refresh: false });
+  await waitForDisconnect(port);
+  return port;
+}
+
+function oneEntityServer() {
+  return startFakeServer([
+    [{ text: JSON.stringify({ topic: "T", entities: [{ id: "a", canonical: "A", kind: "method", gloss: "", surface_forms: ["A"] }] }) }],
+  ]);
+}
+
+test("a tab navigating away drops what was remembered about it", async () => {
+  // Otherwise the side panel says "already analyzed" over a page whose fresh
+  // content script holds no marks at all, and every entity row is a dead
+  // control that scrolls to nothing.
+  const server = await oneEntityServer();
+  try {
+    await loadBackground();
+    await analyzeFakeTab(server);
+    assert.ok(await call({ type: "active-tab-state" }), "analysis should be remembered while the page is still there");
+
+    tabsUpdatedListener(7, { status: "loading" }, { id: 7 });
+    assert.equal(await call({ type: "active-tab-state" }), null);
+  } finally {
+    await server.close();
+  }
+});
+
+test("a same-document URL change also drops it (an SPA route is a different page)", async () => {
+  const server = await oneEntityServer();
+  try {
+    await loadBackground();
+    await analyzeFakeTab(server);
+    tabsUpdatedListener(7, { url: "https://example.com/b" }, { id: 7 });
+    assert.equal(await call({ type: "active-tab-state" }), null);
+  } finally {
+    await server.close();
+  }
+});
+
+test("an unrelated tab update does not drop it", async () => {
+  // `onUpdated` fires for favicons, titles, audible state — none of which
+  // replace the content script or its marks.
+  const server = await oneEntityServer();
+  try {
+    await loadBackground();
+    await analyzeFakeTab(server);
+    tabsUpdatedListener(7, { favIconUrl: "https://example.com/f.ico" }, { id: 7 });
+    assert.ok(await call({ type: "active-tab-state" }));
+
+    tabsUpdatedListener(7, { status: "complete" }, { id: 7 });
+    assert.ok(await call({ type: "active-tab-state" }), "'complete' arrives after our own load; it must not wipe the analysis");
+  } finally {
+    await server.close();
+  }
+});
+
+test("closing a tab drops its entry rather than leaking it for the worker's lifetime", async () => {
+  const server = await oneEntityServer();
+  try {
+    await loadBackground();
+    await analyzeFakeTab(server);
+    tabsRemovedListener(7);
+    assert.equal(await call({ type: "active-tab-state" }), null);
   } finally {
     await server.close();
   }
