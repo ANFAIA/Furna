@@ -49,6 +49,9 @@ exercised against a real browser. Whoever loads this first should check:
 - [ ] With a real OpenRouter key: open any article page, click **Analyze this
       page** — the entity list fills in as chunks arrive, and marks appear in
       the page text at the same time (not after a delay).
+- [ ] A tab that was ALREADY open before the extension was installed or
+      reloaded works without reloading it: the background injects the content
+      script on demand and retries.
 - [ ] Clicking a mark opens a panel right after its paragraph, streams a
       thinking line (if the model exposes one) then the answer, and closing
       it (× or clicking the mark again) removes it cleanly.

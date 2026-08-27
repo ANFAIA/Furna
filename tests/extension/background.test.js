@@ -65,6 +65,8 @@ let connectListener;
 let tabsSendMessageImpl;
 let tabsUpdatedListener;
 let tabsRemovedListener;
+let executeScriptImpl;
+let injectedFiles;
 
 /** Poll for the port to disconnect rather than sleep a fixed guess: a flat
  *  `setTimeout` is exactly the kind of test that passes locally and flakes
@@ -84,6 +86,8 @@ beforeEach(() => {
   tabsUpdatedListener = undefined;
   tabsRemovedListener = undefined;
   tabsSendMessageImpl = async () => null;
+  executeScriptImpl = async () => [{ result: null }];
+  injectedFiles = [];
   // `indexedDB` is a true global in a real service worker, no import needed;
   // Node has none, so a fresh fake stands in per test (Store's DB name is
   // fixed, so tests would otherwise see each other's data).
@@ -103,6 +107,13 @@ beforeEach(() => {
       sendMessage: (tabId, message) => tabsSendMessageImpl(tabId, message),
       onUpdated: { addListener: (fn) => (tabsUpdatedListener = fn) },
       onRemoved: { addListener: (fn) => (tabsRemovedListener = fn) },
+    },
+    scripting: {
+      executeScript: (options) => {
+        injectedFiles.push(...options.files);
+        return executeScriptImpl(options);
+      },
+      insertCSS: async (options) => injectedFiles.push(...options.files),
     },
     sidePanel: { setPanelBehavior: async () => {} },
     action: { setIcon: async () => {} },
@@ -184,11 +195,57 @@ test("analyze-page: asks the active tab for its text, streams to the port, marks
   }
 });
 
-test("analyze-page: a tab the content script cannot reach reports an error over the port, not a hang", async () => {
+test("analyze-page: a tab with no content script gets one injected, then works", async () => {
+  // Reported live, twice: a manifest-declared content script only runs on
+  // pages loaded AFTER the extension, so every tab already open when Furna is
+  // installed — or reloaded during development — had no listener, and the
+  // reader was told to go and reload the tab. It recovers on its own now.
+  const server = await oneEntityServer();
+  try {
+    await loadBackground();
+    await call({ type: "settings.set", key: "baseUrlPreset", value: "custom" });
+    await call({ type: "settings.set", key: "customBaseUrl", value: server.baseUrl });
+    await call({ type: "settings.set", key: "customExtractorModel", value: "m" });
+    await call({ type: "settings.set", key: "customExpanderModel", value: "m" });
+
+    let scriptPresent = false; // the tab starts without one
+    tabsSendMessageImpl = async (_tabId, message) => {
+      if (message.type !== "extract-text") return null;
+      if (!scriptPresent) throw new Error("Could not establish connection. Receiving end does not exist.");
+      return { text: "A short document about A.", url: "https://example.com/a", title: "A" };
+    };
+    executeScriptImpl = async () => {
+      scriptPresent = true; // injection is what makes the retry succeed
+      return [{ result: null }];
+    };
+
+    const port = new FakePort("analyze-page");
+    connectListener(port);
+    port.emit({ refresh: false });
+    await waitForDisconnect(port);
+
+    assert.ok(
+      port.sent.some((m) => m.kind === "result"),
+      `expected a result after injecting; got ${JSON.stringify(port.sent)}`,
+    );
+    assert.deepEqual(injectedFiles, ["content/markdown.js", "content/content.js", "content/marks.css"]);
+  } finally {
+    await server.close();
+  }
+});
+
+test("analyze-page: a page Chrome refuses to inject reports Chrome's own reason", async () => {
+  // The genuinely un-injectable case (chrome://, the Web Store). Chrome's
+  // message names the restriction better than a guess would, so it is passed
+  // through rather than replaced.
   await loadBackground();
   tabsSendMessageImpl = async () => {
     throw new Error("Receiving end does not exist.");
   };
+  executeScriptImpl = async () => {
+    throw new Error("Cannot access a chrome:// URL");
+  };
+
   const port = new FakePort("analyze-page");
   connectListener(port);
   port.emit({ refresh: false });
@@ -196,7 +253,23 @@ test("analyze-page: a tab the content script cannot reach reports an error over 
 
   assert.equal(port.sent.length, 1);
   assert.equal(port.sent[0].kind, "error");
-  assert.match(port.sent[0].data.message, /reload the tab/);
+  assert.match(port.sent[0].data.message, /Cannot access a chrome:\/\/ URL/);
+});
+
+test("analyze-page: a page that loads Furna but never answers says so distinctly", async () => {
+  // Injection succeeded and the tab still did not reply — a different problem
+  // from "no script here", and worth a different sentence.
+  await loadBackground();
+  tabsSendMessageImpl = async () => null;
+  executeScriptImpl = async () => [{ result: null }];
+
+  const port = new FakePort("analyze-page");
+  connectListener(port);
+  port.emit({ refresh: false });
+  await waitForDisconnect(port);
+
+  assert.equal(port.sent[0].kind, "error");
+  assert.match(port.sent[0].data.message, /did not answer/);
 });
 
 test("analyze-page: the reader closing the panel mid-stream does not crash the flow", async () => {

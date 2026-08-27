@@ -1,8 +1,8 @@
 /**
  * Runs on every page (see manifest.json's content_scripts). Loaded after
- * markdown.js in the SAME classic-script scope — `renderMarkdown` and
- * `escapeHtml` are globals from that file, not imports; see PLAN.md for why
- * content scripts here stay classic rather than ES modules.
+ * markdown.js in the SAME classic-script scope, and takes `renderMarkdown` /
+ * `escapeHtml` from the namespace that file publishes — not imports; see
+ * PLAN.md for why content scripts here stay classic rather than ES modules.
  *
  * Three jobs, none of which touch extension storage directly (see
  * background.js's module comment for why): read the page's own text on
@@ -10,6 +10,20 @@
  * in a shadow root, so neither direction of CSS leaks — when a mark is
  * clicked. Nothing runs until asked: no page is analyzed on load.
  */
+//
+// Wrapped in a guarded IIFE for the same reason as markdown.js: this file is
+// injected two ways — declared in the manifest for pages loaded after the
+// extension, and programmatically by the background for pages that were
+// already open when it loaded or reloaded (see `ensureContentScript`). A
+// second run of a bare script would die on `const state` already being
+// declared. The body is deliberately NOT re-indented: it is full of template
+// literals whose whitespace is content.
+(function () {
+if (globalThis.__furnaContent) return; // already injected into this world
+globalThis.__furnaContent = true;
+
+// From markdown.js, which runs first and publishes them (see its footer).
+const { renderMarkdown, escapeHtml } = globalThis.__furnaMarkdown;
 
 const state = {
   documentText: "",
@@ -397,3 +411,4 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return;
   }
 });
+})();

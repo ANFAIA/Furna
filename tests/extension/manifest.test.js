@@ -85,6 +85,7 @@ test("permissions cover the APIs the code actually calls, and no more", () => {
     ["chrome.storage.", "storage"],
     ["chrome.tabs.", "tabs"],
     ["chrome.sidePanel", "sidePanel"],
+    ["chrome.scripting.", "scripting"],
   ]) {
     if (source.includes(api)) {
       assert.ok(permissions.has(permission), `code calls ${api} but "${permission}" is not requested`);

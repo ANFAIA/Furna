@@ -126,19 +126,49 @@ function safePost(port, message) {
   }
 }
 
-/** Ask the active tab's content script for its page text. Rejects if no tab
- *  is active or the content script has not loaded there (e.g. a chrome://
- *  page, or the extension was just installed and the tab predates it) —
- *  the side panel surfaces that rejection as the "problem" line rather than
- *  hanging. */
+/** Put the content script into a tab that has not got one.
+ *
+ *  A manifest-declared content script only runs on pages loaded AFTER the
+ *  extension. Every tab already open when Furna is installed — or reloaded
+ *  during development, which tears down the old isolated world — has no
+ *  listener, and asking the reader to reload each of those tabs is handing
+ *  them a problem this can solve itself. Both files are guarded IIFEs, so
+ *  injecting into a tab that already has them is a no-op rather than a
+ *  redeclaration error. */
+async function ensureContentScript(tabId) {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["content/markdown.js", "content/content.js"],
+  });
+  // Declared CSS is injected with the declared script, so a programmatic
+  // injection has to bring it too or the marks land unstyled.
+  await chrome.scripting.insertCSS({ target: { tabId }, files: ["content/marks.css"] }).catch(() => {});
+}
+
+/** Ask the active tab's content script for its page text, injecting it first
+ *  if the tab has none. Only a page Chrome refuses outright (chrome://, the
+ *  Web Store) still fails here — and the side panel now disables Analyze on
+ *  those before they can be clicked (see sidepanel/page-support.js). */
 async function activeTabText() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab) throw new Error("No active tab.");
-  const reply = await chrome.tabs.sendMessage(tab.id, { type: "extract-text" }).catch(() => null);
+
+  let reply = await chrome.tabs.sendMessage(tab.id, { type: "extract-text" }).catch(() => null);
+  if (!reply) {
+    try {
+      await ensureContentScript(tab.id);
+    } catch (error) {
+      // Chrome's own refusal, verbatim: it names the restricted page or the
+      // missing permission far better than a guess would.
+      throw new Error(`Furna cannot run on this page: ${error?.message ?? error}`);
+    }
+    reply = await chrome.tabs.sendMessage(tab.id, { type: "extract-text" }).catch(() => null);
+  }
+
   if (!reply) {
     throw new Error(
-      "Could not reach this page. Furna cannot run on browser-internal pages " +
-        "(chrome://…, the Web Store) or a tab that was open before the extension loaded — reload the tab and try again.",
+      "This page loaded Furna but did not answer. Reload the tab and try again; " +
+        "if it keeps happening the page may be replacing its own content as it loads.",
     );
   }
   return { tab, ...reply };

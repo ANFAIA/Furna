@@ -25,6 +25,6 @@
       "matches": ["<all_urls>"]
     }
   ],
-  "permissions": ["storage", "sidePanel", "tabs"],
+  "permissions": ["storage", "sidePanel", "tabs", "scripting"],
   "host_permissions": ["<all_urls>"]
 }
