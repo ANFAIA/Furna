@@ -1,0 +1,173 @@
+/**
+ * Provider, key and per-role model configuration — the extension's only copy,
+ * owned by the background service worker. The side panel never reads
+ * `chrome.storage` directly; it asks the background over a message (see
+ * `background.js`'s `settings.*` routes and `sidepanel/settings-client.js`),
+ * so there is exactly one in-memory copy of this state, not two that can
+ * drift apart.
+ *
+ * Same shape as `web/runtime/settings.js` — same defaults, same per-preset
+ * model fields, same migrations — with one difference forced by the storage
+ * primitive: `chrome.storage.local` is promise-only, so this hydrates once
+ * from storage at startup (`await Settings.create()`) and then reads/writes
+ * a synchronous in-memory cache, mirroring writes back to storage. That is
+ * the read-through-cache pattern `chrome.storage` is built around, and it
+ * keeps every call site here just as synchronous as the browser build's
+ * `localStorage`-backed version — `roleConfig()`, `problems()` and the side
+ * panel's rendering all read inline, no `await` threaded through them.
+ *
+ * V1 drops the "webgpu" backend entirely: a service worker has no `window`,
+ * so on-device WebGPU inference cannot run here. OpenRouter and Custom URL
+ * only — see PLAN.md for the offscreen-document path that would add it back.
+ */
+
+const STORAGE_KEY = "furna.settings.v1";
+
+export const OPENROUTER_URL = "https://openrouter.ai/api/v1";
+
+export const PRESET_MODELS = {
+  openrouter: [
+    "inclusionai/ling-3.0-flash:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "google/gemma-4-26b-a4b-it:free",
+    "openai/gpt-oss-20b:free",
+  ],
+};
+
+const DEFAULTS = {
+  baseUrlPreset: "openrouter", // "openrouter" | "custom"
+  customBaseUrl: "http://localhost:1234/v1",
+  apiKey: "",
+  // Per preset, not shared — see web/runtime/settings.js's history for why:
+  // a value typed for one preset must never surface, or get silently reused,
+  // under the other after switching.
+  openrouterExtractorModel: PRESET_MODELS.openrouter[0],
+  openrouterExpanderModel: PRESET_MODELS.openrouter[1],
+  customExtractorModel: "",
+  customExpanderModel: "",
+  extractionConcurrency: 3,
+};
+
+function migrate(stored) {
+  // Same rule as the browser build: a flat, pre-per-preset value is far more
+  // likely to have been typed for a local server than to be a real
+  // OpenRouter slug (those look like "org/name:free"), so it migrates to
+  // "custom", not "openrouter".
+  if ("extractorModel" in stored || "expanderModel" in stored) {
+    stored.customExtractorModel ??= stored.extractorModel;
+    stored.customExpanderModel ??= stored.expanderModel;
+    delete stored.extractorModel;
+    delete stored.expanderModel;
+  }
+  return stored;
+}
+
+export class Settings {
+  #state;
+  #listeners = new Set();
+  #progress = new Map();
+
+  constructor(hydrated) {
+    this.#state = hydrated;
+  }
+
+  /** The only way to obtain one — hydration is async, the object itself is not. */
+  static async create() {
+    let stored = {};
+    try {
+      const result = await chrome.storage.local.get(STORAGE_KEY);
+      stored = result[STORAGE_KEY] ? JSON.parse(result[STORAGE_KEY]) : {};
+    } catch {
+      stored = {};
+    }
+    return new Settings({ ...DEFAULTS, ...migrate(stored) });
+  }
+
+  get(key) {
+    return this.#state[key];
+  }
+
+  set(key, value) {
+    this.#state[key] = value;
+    this.#save();
+    for (const listener of this.#listeners) listener(key, value);
+  }
+
+  /** All settings, for a client that needs to render the whole form at once
+   *  (the side panel, over a message) rather than field by field. */
+  snapshot() {
+    return { ...this.#state };
+  }
+
+  onChange(listener) {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
+  }
+
+  #save() {
+    // Fire-and-forget, same as the localStorage version's #save(): a write
+    // failure (quota, disabled storage) should not block the UI that
+    // triggered it, only fail to persist for next time.
+    chrome.storage.local.set({ [STORAGE_KEY]: JSON.stringify(this.#state) }).catch(() => {});
+  }
+
+  #baseUrl() {
+    return this.#state.baseUrlPreset === "openrouter" ? OPENROUTER_URL : this.#state.customBaseUrl;
+  }
+
+  modelKey(role) {
+    const part = role === "extractor" ? "ExtractorModel" : "ExpanderModel";
+    return `${this.#state.baseUrlPreset}${part}`;
+  }
+
+  /** What `background.js` needs to build a chat model for a role.
+   *  `role` is "extractor" | "expander" — there is no `subagent` role in this
+   *  build, same reason as the browser build: no orchestration. */
+  roleConfig(role) {
+    const model = this.#state[this.modelKey(role)];
+    return {
+      backend: "openai-compatible",
+      baseUrl: this.#baseUrl(),
+      apiKey: this.#state.apiKey,
+      model,
+      label: `${this.#state.baseUrlPreset}:${model}`,
+      maxTokens: 4000,
+      extraHeaders:
+        this.#state.baseUrlPreset === "openrouter"
+          ? { "HTTP-Referer": "chrome-extension://furna", "X-Title": "Furna (extension)" }
+          : {},
+    };
+  }
+
+  problems() {
+    const problems = [];
+    if (this.#state.baseUrlPreset === "openrouter" && !this.#state.apiKey) {
+      problems.push("Paste an OpenRouter API key in Settings, or switch to a Custom URL server.");
+    }
+    if (this.#state.baseUrlPreset === "custom" && !this.#state.customBaseUrl) {
+      problems.push("Set a base URL for the custom OpenAI-compatible server.");
+    }
+    if (!this.#state[this.modelKey("extractor")] || !this.#state[this.modelKey("expander")]) {
+      problems.push("Set a model for the extractor and expander roles in Settings.");
+    }
+    return problems;
+  }
+
+  warnings() {
+    const warnings = [];
+    if (this.#state.baseUrlPreset === "openrouter" && this.#state.apiKey) {
+      warnings.push("The key lives only in this browser's extension storage and is sent only to openrouter.ai.");
+    }
+    return warnings;
+  }
+
+  reportProgress(role, report) {
+    this.#progress.set(role, report);
+    for (const listener of this.#listeners) listener("progress", { role, report });
+  }
+
+  progressFor(role) {
+    return this.#progress.get(role) || null;
+  }
+}
