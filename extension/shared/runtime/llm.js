@@ -11,6 +11,71 @@
  */
 
 /**
+ * Turn a provider's error body into a sentence a reader can act on.
+ *
+ * These bodies are structured and genuinely informative — OpenRouter sends the
+ * limit that was hit, how much is left, when it resets, and often a remedy in
+ * its own words — and the previous code threw all of it away by pasting the
+ * raw JSON in and cutting it at 300 characters, which reliably severed the
+ * remedy mid-word. Reading the fields is both nicer and strictly more useful.
+ *
+ * Falls back to the raw text whenever the shape is not recognised: a provider
+ * this does not know about is better shown verbatim than summarised wrongly.
+ */
+export function describeHttpError(status, bodyText, now = Date.now()) {
+  let parsed;
+  try {
+    parsed = JSON.parse(bodyText);
+  } catch {
+    const raw = (bodyText || "").trim();
+    return `HTTP ${status}${raw ? `: ${raw.slice(0, 300)}` : ""}`;
+  }
+
+  const error = parsed?.error ?? parsed ?? {};
+  const meta = error.metadata ?? {};
+  const parts = [];
+
+  // `metadata.raw` is the UPSTREAM provider's own words. When the outer
+  // message is a generic wrapper ("Provider returned error") that inner text
+  // is the only thing that actually says what happened.
+  const outer = typeof error.message === "string" ? error.message.trim() : "";
+  const raw = typeof meta.raw === "string" ? meta.raw.trim() : "";
+  const generic = /^provider returned error$/i.test(outer);
+  const headline = generic && raw ? raw : outer || raw;
+  parts.push(headline || `HTTP ${status}`);
+
+  if (meta.provider_name && !headline.includes(meta.provider_name)) {
+    parts.push(`(via ${meta.provider_name})`);
+  }
+
+  const reset = Number(meta.headers?.["X-RateLimit-Reset"]);
+  if (Number.isFinite(reset) && reset > now) {
+    parts.push(`Resets ${formatDelay(reset - now)}.`);
+  }
+
+  // The remedy last, and only if it is not already part of what was said —
+  // OpenRouter sometimes repeats it inside `raw`.
+  const remedy = typeof meta.remedy_hint === "string" ? meta.remedy_hint.trim() : "";
+  if (remedy && !parts.join(" ").includes(remedy)) parts.push(remedy);
+
+  return parts.join(" ").replace(/\s+/g, " ").trim();
+}
+
+/** "in 4 hours", "in 12 minutes" — a duration is what the reader needs; an
+ *  absolute epoch millisecond timestamp is not something anyone can read. */
+function formatDelay(ms) {
+  // Floor for the sub-minute check, not round: 30 seconds away is genuinely
+  // under a minute, and rounding it up to "in 1 minute" is a small lie.
+  if (ms < 60000) return "in under a minute";
+  const minutes = Math.round(ms / 60000);
+  if (minutes < 60) return `in ${minutes} minute${minutes === 1 ? "" : "s"}`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `in about ${hours} hour${hours === 1 ? "" : "s"}`;
+  const days = Math.round(hours / 24);
+  return `in about ${days} day${days === 1 ? "" : "s"}`;
+}
+
+/**
  * `openai-compatible`: a direct `fetch` to `{baseUrl}/chat/completions` with
  * `stream: true`. Works against OpenRouter (the user's own key, CORS-enabled
  * by that API's design) and against any local OpenAI-compatible server
@@ -45,7 +110,7 @@ export function openAiCompatible({ baseUrl, apiKey, model, extraHeaders = {} }) 
 
     if (!response.ok || !response.body) {
       const detail = await response.text().catch(() => "");
-      throw new Error(`HTTP ${response.status}${detail ? `: ${detail.slice(0, 300)}` : ""}`);
+      throw new Error(describeHttpError(response.status, detail));
     }
 
     const reader = response.body.getReader();

@@ -147,9 +147,16 @@ export async function* extractStream(model, document, { concurrency = 3 } = {}) 
 
   const parts = results.filter(Boolean);
   if (!parts.length) {
+    // When every chunk failed the same way — a rate limit, a bad key — the
+    // reason IS the message. Prefixing it with "no usable inventory for any
+    // part of the document" buries the one sentence the reader needs behind a
+    // restatement of the obvious.
+    const distinct = new Set(failures.map(signatureOf));
+    const reason = failures.at(-1) || "unknown";
     throw new Error(
-      "The model returned no usable inventory for any part of the document. " +
-        `Last problem: ${failures.at(-1) || "unknown"}`,
+      distinct.size === 1
+        ? reason
+        : `No part of the document could be read. Last problem: ${reason}`,
     );
   }
   const merged = mergeExtractions(parts);

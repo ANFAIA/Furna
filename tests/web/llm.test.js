@@ -53,13 +53,15 @@ test("sends the key as a bearer header only when one is given", async () => {
   }
 });
 
-test("a non-2xx response raises with the status and body", async () => {
+test("a non-2xx response raises with what the provider actually said", async () => {
   const server = await startFakeServer([{ status: 429, message: "rate limit exceeded" }]);
   try {
     const model = openAiCompatible({ baseUrl: server.baseUrl, apiKey: "", model: "m" });
+    // The provider's own sentence, not the raw JSON it arrived in — see
+    // `describeHttpError` and tests/extension/http-errors.test.js.
     await assert.rejects(async () => {
       for await (const _ of model.chat({ messages: [] })) void 0;
-    }, /429/);
+    }, /rate limit exceeded/);
   } finally {
     await server.close();
   }

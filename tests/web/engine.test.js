@@ -65,9 +65,11 @@ test("extractStream fails only when every chunk fails", async () => {
   const server = await startFakeServer([[{ text: "not json" }]]);
   try {
     const model = openAiCompatible({ baseUrl: server.baseUrl, apiKey: "", model: "m" });
+    // The reason itself, not a wrapper around it: when every chunk failed the
+    // same way, restating "no part could be read" first only buries it.
     await assert.rejects(async () => {
       for await (const _ of extractStream(model, doc)) void 0;
-    }, /no usable inventory/);
+    }, /not valid JSON/);
   } finally {
     await server.close();
   }
