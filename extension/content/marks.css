@@ -1,0 +1,35 @@
+/* Injected once into the host page's <head>. Marks sit inline in the page's
+   own text, so they cannot be shadow-DOM-isolated the way a panel can — one
+   namespaced class with the essential visual properties guarded, rather than
+   thousands of individually-isolated spans. A page whose own CSS resets
+   everything with `all: unset !important` can still defeat this; documented
+   as a known limitation in PLAN.md, not solved here. */
+
+mark.furna-mark {
+  background: rgba(122, 92, 255, 0.16) !important;
+  color: inherit !important;
+  border-radius: 2px;
+  padding: 0 1px;
+  cursor: pointer !important;
+  text-decoration: underline;
+  text-decoration-color: rgba(122, 92, 255, 0.55);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 2px;
+}
+mark.furna-mark:hover {
+  background: rgba(122, 92, 255, 0.28) !important;
+}
+mark.furna-mark[data-furna-open] {
+  background: rgba(122, 92, 255, 0.36) !important;
+}
+mark.furna-mark:focus-visible {
+  outline: 2px solid #7a5cff;
+  outline-offset: 1px;
+}
+mark.furna-mark.furna-flash {
+  animation: furna-mark-flash 1.1s ease;
+}
+@keyframes furna-mark-flash {
+  0%, 100% { background: rgba(122, 92, 255, 0.16) !important; }
+  30% { background: rgba(122, 92, 255, 0.6) !important; }
+}

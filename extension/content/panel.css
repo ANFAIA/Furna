@@ -1,0 +1,150 @@
+/* Injected fresh into EVERY panel's shadow root — a shadow root inherits
+   nothing from the host page's stylesheet, and nothing declared in here
+   leaks back out. Trimmed from web/style.css's panel rules: no verbosity
+   switcher and no nested drill-down in this build (see PLAN.md), so the
+   length-control and multi-depth rules are left out rather than carried in
+   unused. */
+
+:host {
+  all: initial; /* the host page's inherited font/color/line-height stop here */
+}
+
+* { box-sizing: border-box; }
+
+.furna-panel {
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+  font-size: 14px;
+  line-height: 1.55;
+  color: #1d1b18;
+  background: #ffffff;
+  border: 1px solid #e3dfd8;
+  border-left: 3px solid #7a5cff;
+  border-radius: 10px;
+  margin: 0.5em 0;
+  box-shadow: 0 2px 10px rgba(29, 27, 24, 0.09);
+  max-width: 42em;
+}
+@media (prefers-color-scheme: dark) {
+  .furna-panel {
+    color: #eae6df;
+    background: #1c1c17;
+    border-color: #2d2c25;
+    border-left-color: #a996ff;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  }
+}
+
+.furna-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.6em 0.75em;
+  border-bottom: 1px solid #e3dfd8;
+}
+@media (prefers-color-scheme: dark) {
+  .furna-panel-head { border-color: #2d2c25; }
+}
+
+.furna-panel-kind {
+  font-size: 0.68em;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #918a80;
+}
+.furna-panel-title { margin: 0; font-size: 1em; font-weight: 600; flex: 1; }
+.furna-panel-badge { font-size: 0.7em; color: #918a80; }
+.furna-panel-badge.is-cache { color: #3f9e78; }
+.furna-panel-badge.is-fresh { color: #c2703a; }
+
+.furna-panel-close {
+  background: none;
+  border: none;
+  color: #918a80;
+  font-size: 1.1em;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.2em 0.3em;
+}
+.furna-panel-close:hover { color: #1d1b18; }
+@media (prefers-color-scheme: dark) {
+  .furna-panel-close:hover { color: #eae6df; }
+}
+
+.furna-thinking {
+  margin: 0;
+  padding: 0.35em 0.75em;
+  font-size: 0.78em;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  color: #918a80;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl; /* tail of the reasoning is what matters, keep it visible */
+}
+.furna-thinking > span { direction: ltr; unicode-bidi: embed; }
+
+.furna-panel-body { padding: 0.7em 0.75em 0.8em; }
+.furna-panel-body .one-liner { margin: 0 0 0.5em; font-weight: 600; }
+.furna-panel-body .prose p { margin: 0 0 0.6em; }
+.furna-panel-body .prose ul, .furna-panel-body .prose ol { margin: 0 0 0.6em; padding-left: 1.1em; }
+.furna-panel-body .prose li { margin-bottom: 0.25em; }
+.furna-panel-body code {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.85em;
+  background: #f1efeb;
+  padding: 0.08em 0.32em;
+  border-radius: 4px;
+}
+@media (prefers-color-scheme: dark) {
+  .furna-panel-body code { background: #0e0e0b; }
+}
+
+.furna-why {
+  margin-top: 0.6em;
+  padding-top: 0.5em;
+  border-top: 1px solid #e3dfd8;
+}
+@media (prefers-color-scheme: dark) { .furna-why { border-color: #2d2c25; } }
+.furna-why > span { display: block; font-size: 0.68em; letter-spacing: 0.06em; text-transform: uppercase; color: #918a80; margin-bottom: 0.2em; }
+.furna-why p { margin: 0; font-size: 0.9em; color: #5f5a52; }
+@media (prefers-color-scheme: dark) { .furna-why p { color: #a8a196; } }
+
+.furna-chip {
+  display: inline-block;
+  margin: 0 0.3em 0.3em 0;
+  padding: 0.15em 0.55em;
+  border: 1px solid #e3dfd8;
+  border-radius: 20px;
+  background: transparent;
+  color: #5f5a52;
+  font-size: 0.82em;
+  cursor: pointer;
+}
+.furna-chip:hover { border-color: #7a5cff; color: #7a5cff; }
+.furna-chip:disabled { opacity: 0.45; cursor: default; }
+@media (prefers-color-scheme: dark) {
+  .furna-chip { border-color: #2d2c25; color: #a8a196; }
+  .furna-chip:hover { border-color: #a996ff; color: #a996ff; }
+}
+
+.furna-warn { color: #c2703a; font-size: 0.85em; margin: 0.6em 0 0; }
+@media (prefers-color-scheme: dark) { .furna-warn { color: #e2a06a; } }
+
+.furna-loader {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  color: #918a80;
+  font-size: 0.85em;
+}
+.furna-retry {
+  margin-top: 0.5em;
+  padding: 0.25em 0.7em;
+  border: 1px solid #e3dfd8;
+  border-radius: 20px;
+  background: transparent;
+  color: #5f5a52;
+  font-size: 0.8em;
+  cursor: pointer;
+}
+@media (prefers-color-scheme: dark) { .furna-retry { border-color: #2d2c25; color: #a8a196; } }

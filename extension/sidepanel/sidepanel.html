@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Furna</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <header class="brand">
+      <img src="../icons/furna.svg" alt="" width="18" height="18" />
+      <span>Furna</span>
+    </header>
+
+    <section class="block">
+      <p class="label">Inference</p>
+      <div class="tabs" role="tablist">
+        <button class="seg" data-preset="openrouter">OpenRouter</button>
+        <button class="seg" data-preset="custom">Custom URL</button>
+      </div>
+
+      <label class="field" data-field="key">
+        <span>API key</span>
+        <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="sk-or-…" />
+      </label>
+      <label class="field" data-field="url">
+        <span>Base URL</span>
+        <input type="text" id="url" spellcheck="false" placeholder="http://localhost:1234/v1" />
+      </label>
+      <label class="field">
+        <span>Extractor model</span>
+        <input type="text" id="extractor" list="extractor-list" spellcheck="false" />
+        <datalist id="extractor-list"></datalist>
+      </label>
+      <label class="field">
+        <span>Expander model</span>
+        <input type="text" id="expander" list="expander-list" spellcheck="false" />
+        <datalist id="expander-list"></datalist>
+      </label>
+      <p class="hint">
+        The key is stored only in this browser's extension storage and is sent only to the base URL
+        above.
+      </p>
+      <p class="hint">
+        A Custom URL server must send <code>Access-Control-Allow-Origin</code> for
+        <code>chrome-extension://…</code> — Ollama does by default; LM Studio has a setting for it.
+      </p>
+      <p class="warn" id="problem" hidden></p>
+    </section>
+
+    <section class="block">
+      <p class="label">This page</p>
+      <p class="hint" id="page-title">no active tab</p>
+      <div class="row">
+        <button class="primary" id="btn-analyze">Analyze this page</button>
+        <button class="ghost" id="btn-refresh" title="Re-read the page, ignoring the cache">↻</button>
+      </div>
+      <p class="status" id="status"></p>
+      <button class="ghost danger" id="btn-clear" hidden>Clear this page's cache</button>
+    </section>
+
+    <section class="block grow">
+      <p class="label">Entities</p>
+      <input id="filter" type="search" placeholder="Filter…" />
+      <ul id="entity-list" class="entity-list"></ul>
+    </section>
+
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>
